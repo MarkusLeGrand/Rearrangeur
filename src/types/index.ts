@@ -10,6 +10,7 @@ export interface Piece {
 }
 
 export type ElementMurType = 'porte' | 'fenetre';
+export type FenetreVariant = 'standard' | 'petite' | 'porte_fenetre' | 'baie_vitree';
 
 export interface ElementMur {
   id: string;
@@ -17,6 +18,8 @@ export interface ElementMur {
   murIndex: number;       // index dans piece.allWalls
   position: number;       // 0–1 le long du mur
   largeur: number;        // cm
+  sens: 1 | -1;           // sens d'ouverture (+1 normal, -1 inversé)
+  fenetreVariant?: FenetreVariant;
 }
 
 export interface MeubleCatalogue {
@@ -42,4 +45,27 @@ export interface MeublePlacement {
 }
 
 export type AppMode = 'dessin' | 'amenagement' | 'resultat';
-export type DrawPhase = 'contour' | 'murs_interieurs';
+export type DrawPhase = 'surface_input' | 'mode_choice' | 'contour_draw' | 'contour_template' | 'murs_interieurs' | 'validation';
+export type DrawMethod = 'dessiner' | 'generer';
+export type DrawTool = 'line' | 'freehand' | 'arc' | 'eraser';
+export type TemplateShape = 'rectangle' | 'L' | 'T' | 'U';
+
+export interface TemplateParams {
+  shape: TemplateShape;
+  targetArea: number;  // cm²
+  values: Record<string, number>;
+}
+
+export interface TemplateHandle {
+  id: string;
+  paramKey: string;
+  position: Point;
+  axis: 'x' | 'y';
+  min: number;
+  max: number;
+}
+
+export interface TemplateResult {
+  contour: Point[];
+  handles: TemplateHandle[];
+}

@@ -1,17 +1,70 @@
-import { useRef, useState, useEffect } from 'react';
-import { Stage, Layer, Line, Rect, Text, Arc } from 'react-konva';
+import React, { useRef, useState, useEffect } from 'react';
+import { Stage, Layer, Line, Rect, Text, Arc, Group, Circle } from 'react-konva';
 import { useStore } from '../store';
 import type { ElementMur, MeublePlacement, WallLine } from '../types';
-import { pointSurSegment, angleSegment, projeterSur, snap, polyBounds } from '../utils/geometry';
+import { pointSurSegment, angleSegment, projeterSur, snap } from '../utils/geometry';
 
-const SNAP = 50;
+const MAX_CM = 1000;
+const SNAP = 10;
+const FLOOR = '#FFFFFF';
+const WALL_COLOR = '#1A1A1A';
+
+/** Largeur standard par type/variant */
+function getLargeur(tool: { type: 'porte' | 'fenetre'; variant?: string }): number {
+  if (tool.type === 'porte') return 83;
+  switch (tool.variant) {
+    case 'petite': return 60;
+    case 'porte_fenetre': return 140;
+    case 'baie_vitree': return 220;
+    default: return 120;
+  }
+}
+
+// ── Pastel color palette (same style as landing header) ──
+const PASTEL: Record<string, string> = {
+  // Salon
+  canape3: '#F4A261', canape2: '#F4A261', canapeangle: '#E8975A', fauteuil: '#F4A261',
+  pouf: '#E8D5C0', tablebasse: '#DEB887', meubletv: '#C9B1FF', biblio: '#FFB4B4',
+  console: '#D5C9A6',
+  // Chambre
+  litdouble: '#A8D8EA', litsimple: '#A8D8EA', lit140: '#A8D8EA',
+  chevet: '#B8D4E3', armoire: '#D4A5A5', armoire2p: '#D4A5A5',
+  commode: '#B8D4E3', coiffeuse: '#D4C4E3',
+  // Salle a manger
+  table6: '#DEB887', table4: '#DEB887', tableronde: '#DEB887',
+  chaise: '#C8C8C0', tabouret: '#C8C8C0', buffet: '#D5C9A6', vaisselier: '#D5C9A6',
+  // Bureau
+  bureau: '#B5C99A', bureauangle: '#B5C99A', chaisebureau: '#C8C8C0',
+  etagere: '#D5C9A6', classeur: '#B8C4D0',
+  // Divers
+  canapelit: '#F4A261', tapis: '#E8DCC8', porte_manteaux: '#C8C8C0', meuble_chaussures: '#D5C9A6',
+  // Cuisine
+  evier: '#95C8C8', plantravail: '#A8C8A8', ilot: '#A8C8A8',
+  frigo: '#E0E0D8', four: '#C8C8C0', lavevaisselle: '#D0D0D0',
+  microondes: '#C8C8C0', hotte: '#D0D0D0', congelateur: '#E0E0D8',
+  // Salle de bain
+  baignoire: '#A8D8EA', douche: '#A8D8EA', doucheitalienne: '#A8D8EA',
+  lavabo: '#95C8C8', doublevasque: '#95C8C8', wc: '#D0D8E0',
+  lavelinge: '#E0E0D8', sechelinge: '#E0E0D8', secheserviettes: '#C8C8C0',
+  // Installations
+  radiateur: '#FFB4B4', radiateurpetit: '#FFB4B4',
+  prisecourant: '#FFE0A0', interrupteur: '#FFE0A0',
+  tableauelectrique: '#FFD080', cheminee: '#FFB4B4', poele: '#FF9090',
+  cumulus: '#E0E0D8', climatiseur: '#A8D8EA',
+};
+
+export function getPastelColor(catalogueId: string, fallback?: string): string {
+  return PASTEL[catalogueId] || fallback || '#D0D0D0';
+}
 
 export function CanvasAmenagement() {
   const piece = useStore((s) => s.piece)!;
   const echelle = useStore((s) => s.echelle);
+  const setEchelle = useStore((s) => s.setEchelle);
   const elementsMur = useStore((s) => s.elementsMur);
   const ajouterElementMur = useStore((s) => s.ajouterElementMur);
   const supprimerElementMur = useStore((s) => s.supprimerElementMur);
+  const inverserSensElement = useStore((s) => s.inverserSensElement);
   const fixes = useStore((s) => s.fixes);
   const ajouterFixe = useStore((s) => s.ajouterFixe);
   const supprimerFixe = useStore((s) => s.supprimerFixe);
@@ -21,6 +74,11 @@ export function CanvasAmenagement() {
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [sz, setSz] = useState({ w: 800, h: 600 });
+
+  // Pan state
+  const [stagePos, setStagePos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
+  const panStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
   useEffect(() => {
     const el = containerRef.current;
@@ -32,71 +90,82 @@ export function CanvasAmenagement() {
     return () => ro.disconnect();
   }, []);
 
-  const bounds = polyBounds(piece.contour);
-  const ww = bounds.maxX - bounds.minX;
-  const wh = bounds.maxY - bounds.minY;
-  const pad = 50;
-  const scale = Math.min((sz.w - pad * 2) / ww, (sz.h - pad * 2) / wh, echelle);
+  // ── Coordinate system (grid centered, piece centered within grid) ──
+  const PAD = 40;
+  const baseScale = Math.min((sz.w - PAD * 2) / MAX_CM, (sz.h - PAD * 2) / MAX_CM);
+  const scale = baseScale * echelle;
+  const cx = (sz.w - MAX_CM * scale) / 2;
+  const cy = (sz.h - MAX_CM * scale) / 2;
+
+  const toSc = (x: number, y: number) => ({
+    sx: cx + x * scale + stagePos.x,
+    sy: cy + y * scale + stagePos.y,
+  });
+
+  const toCm = (sx: number, sy: number) => ({
+    x: (sx - cx - stagePos.x) / scale,
+    y: (sy - cy - stagePos.y) / scale,
+  });
 
   const murs = piece.allWalls;
 
-  const toSc = (x: number, y: number) => ({
-    sx: pad + (x - bounds.minX) * scale,
-    sy: pad + (y - bounds.minY) * scale,
-  });
+  // ── Wheel zoom ──
+  const handleWheel = (e: any) => {
+    e.evt.preventDefault();
+    const pointer = e.target.getStage()?.getPointerPosition();
+    if (!pointer) return;
+    const direction = e.evt.deltaY < 0 ? 1 : -1;
+    const factor = 1.1;
+    const newEchelle = Math.max(0.3, Math.min(5, echelle * (direction > 0 ? factor : 1 / factor)));
+    const oldScale = baseScale * echelle;
+    const newScale = baseScale * newEchelle;
+    const newCx = (sz.w - MAX_CM * newScale) / 2;
+    const newCy = (sz.h - MAX_CM * newScale) / 2;
+    const mouseXcm = (pointer.x - cx - stagePos.x) / oldScale;
+    const mouseYcm = (pointer.y - cy - stagePos.y) / oldScale;
+    setStagePos({
+      x: pointer.x - newCx - mouseXcm * newScale,
+      y: pointer.y - newCy - mouseYcm * newScale,
+    });
+    setEchelle(newEchelle);
+  };
 
-  // Grille
-  const gridLines: React.JSX.Element[] = [];
-  for (let cm = 0; cm <= ww; cm += 50) {
-    const x = pad + cm * scale;
-    gridLines.push(<Line key={`sv${cm}`} points={[x, pad, x, pad + wh * scale]} stroke="#F3F4F6" strokeWidth={0.5} />);
-  }
-  for (let cm = 0; cm <= wh; cm += 50) {
-    const y = pad + cm * scale;
-    gridLines.push(<Line key={`sh${cm}`} points={[pad, y, pad + ww * scale, y]} stroke="#F3F4F6" strokeWidth={0.5} />);
-  }
-  for (let cm = 0; cm <= ww; cm += 100) {
-    const x = pad + cm * scale;
-    gridLines.push(<Line key={`mv${cm}`} points={[x, pad, x, pad + wh * scale]} stroke="#E5E7EB" strokeWidth={1} />);
-  }
-  for (let cm = 0; cm <= wh; cm += 100) {
-    const y = pad + cm * scale;
-    gridLines.push(<Line key={`mh${cm}`} points={[pad, y, pad + ww * scale, y]} stroke="#E5E7EB" strokeWidth={1} />);
-  }
+  // ── Pan (right-click drag) ──
+  const handleMouseDown = (e: any) => {
+    if (e.evt.button === 2) {
+      e.evt.preventDefault();
+      setIsPanning(true);
+      panStartRef.current = { x: e.evt.clientX - stagePos.x, y: e.evt.clientY - stagePos.y };
+    }
+  };
+  const handleMouseMove = (e: any) => {
+    if (isPanning) setStagePos({ x: e.evt.clientX - panStartRef.current.x, y: e.evt.clientY - panStartRef.current.y });
+  };
+  const handleMouseUp = () => { if (isPanning) setIsPanning(false); };
 
-  const labels: React.JSX.Element[] = [];
-  for (let cm = 0; cm <= ww; cm += 100)
-    labels.push(<Text key={`lx${cm}`} x={pad + cm * scale - 6} y={pad - 16} text={`${cm / 100}`} fontSize={10} fill="#9CA3AF" />);
-  for (let cm = 100; cm <= wh; cm += 100)
-    labels.push(<Text key={`ly${cm}`} x={pad - 22} y={pad + cm * scale - 5} text={`${cm / 100}`} fontSize={10} fill="#9CA3AF" />);
-
+  // ── Click to place door/window ──
   const handleClick = (e: any) => {
-    if (!placingTool) return;
+    if (isPanning || !placingTool) return;
     const pos = e.target.getStage()?.getPointerPosition();
     if (!pos) return;
-
-    const cmX = (pos.x - pad) / scale + bounds.minX;
-    const cmY = (pos.y - pad) / scale + bounds.minY;
-
+    const cm = toCm(pos.x, pos.y);
     let bestI = 0, bestT = 0, bestD = Infinity;
     for (let i = 0; i < murs.length; i++) {
-      const t = projeterSur({ x: cmX, y: cmY }, murs[i].debut, murs[i].fin);
+      const t = projeterSur({ x: cm.x, y: cm.y }, murs[i].debut, murs[i].fin);
       const pt = pointSurSegment(murs[i].debut, murs[i].fin, t);
-      const d = Math.sqrt((cmX - pt.x) ** 2 + (cmY - pt.y) ** 2);
+      const d = Math.sqrt((cm.x - pt.x) ** 2 + (cm.y - pt.y) ** 2);
       if (d < bestD) { bestD = d; bestI = i; bestT = t; }
     }
     if (bestD > 50) return;
-
     ajouterElementMur({
-      id: crypto.randomUUID(),
-      type: placingTool,
-      murIndex: bestI,
-      position: bestT,
-      largeur: placingTool === 'porte' ? 90 : 100,
+      id: crypto.randomUUID(), type: placingTool.type, murIndex: bestI, position: bestT,
+      largeur: getLargeur(placingTool), sens: 1,
+      fenetreVariant: placingTool.type === 'fenetre' ? (placingTool.variant || 'standard') : undefined,
     });
     setPlacingTool(null);
   };
 
+  // ── Drop for fixed elements ──
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     const data = e.dataTransfer.getData('fixe');
@@ -104,67 +173,126 @@ export function CanvasAmenagement() {
     const item = JSON.parse(data);
     const rect = containerRef.current?.getBoundingClientRect();
     if (!rect) return;
-
+    const cm = toCm(e.clientX - rect.left, e.clientY - rect.top);
     ajouterFixe({
       catalogueId: item.id, nom: item.nom,
       largeur: item.largeur, hauteur: item.hauteur, couleur: item.couleur,
-      x: snap((e.clientX - rect.left - pad) / scale + bounds.minX, SNAP),
-      y: snap((e.clientY - rect.top - pad) / scale + bounds.minY, SNAP),
+      x: snap(cm.x - item.largeur / 2, SNAP), y: snap(cm.y - item.hauteur / 2, SNAP),
       rotation: 0, fixe: true,
     });
   };
 
+  const zoomPct = Math.round(echelle * 100);
+
   return (
-    <div ref={containerRef} className="flex-1 overflow-hidden bg-gray-100"
+    <div ref={containerRef} style={{ flex: 1, overflow: 'hidden', position: 'relative', background: '#FFFFFF' }}
       onDragOver={(e) => e.preventDefault()} onDrop={handleDrop}>
-      <Stage width={sz.w} height={sz.h} onClick={handleClick}
-        style={{ cursor: placingTool ? 'crosshair' : 'default' }}>
+      <Stage width={sz.w} height={sz.h}
+        onClick={handleClick} onTap={handleClick}
+        onContextMenu={(e: any) => e.evt.preventDefault()}
+        onMouseDown={handleMouseDown} onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp} onMouseLeave={handleMouseUp}
+        onWheel={handleWheel}
+        style={{ cursor: isPanning ? 'grabbing' : placingTool ? 'crosshair' : 'default' }}>
         <Layer>
-          <Rect x={0} y={0} width={sz.w} height={sz.h} fill="#F9FAFB" />
-          <Rect x={pad} y={pad} width={ww * scale} height={wh * scale} fill="#FFFFFF" stroke="#D1D5DB" strokeWidth={1} />
-          {gridLines}
-          {labels}
+          {/* White background */}
+          <Rect x={0} y={0} width={sz.w} height={sz.h} fill="#FFFFFF" />
 
-          {/* Fond contour */}
+          {/* Floor fill */}
           <Line points={piece.contour.flatMap((p) => { const s = toSc(p.x, p.y); return [s.sx, s.sy]; })}
-            closed fill="rgba(219,234,254,0.15)" stroke="transparent" />
+            closed fill={FLOOR} stroke="transparent" />
 
-          {/* Tous les murs */}
+          {/* All walls */}
           {murs.map((w, i) => {
             const a = toSc(w.debut.x, w.debut.y), b = toSc(w.fin.x, w.fin.y);
-            // Murs intérieurs en rouge, contour en gris foncé
-            const isInner = i >= piece.contour.length;
             return <Line key={`w${i}`} points={[a.sx, a.sy, b.sx, b.sy]}
-              stroke={isInner ? '#DC2626' : '#374151'} strokeWidth={3} lineCap="round" />;
+              stroke={WALL_COLOR} strokeWidth={3} lineCap="round" lineJoin="round" />;
           })}
 
-          {/* Éléments sur murs */}
+          {/* Wall dimension labels */}
+          {murs.map((w, i) => {
+            const a = toSc(w.debut.x, w.debut.y), b = toSc(w.fin.x, w.fin.y);
+            const len = Math.sqrt((w.fin.x - w.debut.x) ** 2 + (w.fin.y - w.debut.y) ** 2);
+            if (len < 30) return null;
+            const mx = (a.sx + b.sx) / 2, my = (a.sy + b.sy) / 2;
+            return <Text key={`wl${i}`} x={mx - 16} y={my - 18}
+              text={`${(len / 100).toFixed(1)} m`}
+              fontSize={10} fontStyle="600" fill="rgba(0,0,0,0.3)" fontFamily="Inter" />;
+          })}
+
+          {/* Doors/Windows */}
           {elementsMur.map((el) => (
-            <ElMurShape key={el.id} el={el} murs={murs} scale={scale} bounds={bounds} pad={pad}
-              onDelete={() => supprimerElementMur(el.id)} />
+            <ElMurLight key={el.id} el={el} murs={murs} toSc={toSc} scale={scale}
+              onContextMenu={(action) => {
+                if (action === 'delete') supprimerElementMur(el.id);
+                else inverserSensElement(el.id);
+              }} />
           ))}
 
-          {/* Fixes */}
+          {/* Fixed elements */}
           {fixes.map((m, i) => (
-            <FixeShape key={`f${i}`} m={m} scale={scale} bounds={bounds} pad={pad}
+            <FurnitureGroup key={`f${i}`} m={m} toSc={toSc} scale={scale} fixe
               onDelete={() => supprimerFixe(i)}
-              onDragEnd={(x, y) => mettreAJourFixe(i, { x, y })} />
+              onDragEnd={(x, y) => mettreAJourFixe(i, { x, y })}
+              onSetRotation={(r) => mettreAJourFixe(i, { rotation: r })}
+              onResize={(l, h) => mettreAJourFixe(i, { largeur: l, hauteur: h })}
+              toCm={toCm} />
           ))}
 
+          {/* Placing hint */}
           {placingTool && (
-            <Text x={pad} y={pad + wh * scale + 10}
-              text={`Cliquez sur un mur pour placer la ${placingTool === 'porte' ? 'porte' : 'fenêtre'}`}
-              fontSize={13} fill="#2563EB" />
+            <Text x={16} y={sz.h - 32}
+              text={`Cliquez sur un mur pour placer ${placingTool.type === 'porte' ? 'la porte' : 'la fenetre'}`}
+              fontSize={12} fill="rgba(0,0,0,0.4)" fontFamily="Inter" />
           )}
         </Layer>
       </Stage>
+
+      {/* Zoom controls */}
+      <div style={{
+        position: 'absolute', bottom: 16, right: 16,
+        display: 'flex', alignItems: 'center', gap: 2,
+        background: 'rgba(0,0,0,0.04)', borderRadius: 9999,
+        border: '1px solid rgba(0,0,0,0.08)', padding: '3px 4px',
+        zIndex: 5, userSelect: 'none', backdropFilter: 'blur(8px)',
+      }}>
+        <button onClick={() => setEchelle(Math.max(0.3, echelle / 1.2))} style={{
+          width: 26, height: 26, borderRadius: '50%', border: 'none',
+          background: 'rgba(0,0,0,0.04)', cursor: 'pointer', fontSize: 14,
+          fontWeight: 600, color: 'rgba(0,0,0,0.4)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Inter',
+        }}>-</button>
+        <span style={{
+          fontSize: 10, fontWeight: 600, color: 'rgba(0,0,0,0.3)',
+          minWidth: 38, textAlign: 'center', letterSpacing: '0.04em', fontFamily: 'Inter',
+        }}>{zoomPct}%</span>
+        <button onClick={() => setEchelle(Math.min(5, echelle * 1.2))} style={{
+          width: 26, height: 26, borderRadius: '50%', border: 'none',
+          background: 'rgba(0,0,0,0.04)', cursor: 'pointer', fontSize: 14,
+          fontWeight: 600, color: 'rgba(0,0,0,0.4)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Inter',
+        }}>+</button>
+        <button onClick={() => { setEchelle(1); setStagePos({ x: 0, y: 0 }); }} style={{
+          height: 26, borderRadius: 9999, border: 'none',
+          background: echelle !== 1 ? 'rgba(231,111,81,0.12)' : 'rgba(0,0,0,0.04)',
+          cursor: 'pointer', fontSize: 9, fontWeight: 600,
+          color: echelle !== 1 ? '#E76F51' : 'rgba(0,0,0,0.3)',
+          padding: '0 10px', letterSpacing: '0.06em', fontFamily: 'Inter',
+        }}>FIT</button>
+      </div>
     </div>
   );
 }
 
-function ElMurShape({ el, murs, scale, bounds, pad, onDelete }: {
-  el: ElementMur; murs: WallLine[]; scale: number;
-  bounds: { minX: number; minY: number }; pad: number; onDelete: () => void;
+// ══════════════════════════════════════════════════════════
+// Door/Window rendering (light theme)
+// ══════════════════════════════════════════════════════════
+
+function ElMurLight({ el, murs, toSc, scale, onContextMenu }: {
+  el: ElementMur; murs: WallLine[];
+  toSc: (x: number, y: number) => { sx: number; sy: number };
+  scale: number;
+  onContextMenu: (action: 'delete' | 'flip') => void;
 }) {
   const mur = murs[el.murIndex];
   if (!mur) return null;
@@ -172,74 +300,161 @@ function ElMurShape({ el, murs, scale, bounds, pad, onDelete }: {
   const pt = pointSurSegment(mur.debut, mur.fin, el.position);
   const angle = angleSegment(mur.debut, mur.fin);
   const deg = (angle * 180) / Math.PI;
-  const px = pad + (pt.x - bounds.minX) * scale;
-  const py = pad + (pt.y - bounds.minY) * scale;
+  const sc = toSc(pt.x, pt.y);
+  const px = sc.sx, py = sc.sy;
   const hw = (el.largeur / 2) * scale;
+  const sens = el.sens ?? 1;
 
   const wallGap = (
     <Line points={[
       px - hw * Math.cos(angle), py - hw * Math.sin(angle),
       px + hw * Math.cos(angle), py + hw * Math.sin(angle),
-    ]} stroke="#F9FAFB" strokeWidth={6} />
+    ]} stroke={FLOOR} strokeWidth={6} />
   );
 
+  const handleCtx = (e: any) => { e.evt.preventDefault(); e.cancelBubble = true; onContextMenu('delete'); };
+
   if (el.type === 'porte') {
+    const pivotDir = sens === 1 ? -1 : 1;
+    const pivotX = px + pivotDir * hw * Math.cos(angle);
+    const pivotY = py + pivotDir * hw * Math.sin(angle);
+    const arcRotation = sens === 1 ? deg - 90 : deg + 90;
     return (
       <>
         {wallGap}
-        <Arc x={px - hw * Math.cos(angle)} y={py - hw * Math.sin(angle)}
+        <Arc x={pivotX} y={pivotY}
           innerRadius={0} outerRadius={el.largeur * scale * 0.9}
-          angle={90} rotation={deg - 90}
-          fill="rgba(59,130,246,0.1)" stroke="#3B82F6" strokeWidth={1.5} />
-        <Text x={px - 6} y={py - 18} text="x" fontSize={14} fill="#EF4444" onClick={onDelete} />
+          angle={90} rotation={arcRotation}
+          fill="rgba(59,130,246,0.08)" stroke="rgba(0,0,0,0.25)" strokeWidth={1}
+          onContextMenu={handleCtx} />
       </>
     );
   }
 
+  // Window
   const nx = -Math.sin(angle), ny = Math.cos(angle);
   const off = 3 * scale;
+  const isBaie = el.fenetreVariant === 'baie_vitree';
+  const strokeColor = '#38BDF8';
+
   return (
     <>
       {wallGap}
       <Line points={[
         px - hw * Math.cos(angle) + nx * off, py - hw * Math.sin(angle) + ny * off,
         px + hw * Math.cos(angle) + nx * off, py + hw * Math.sin(angle) + ny * off,
-      ]} stroke="#38BDF8" strokeWidth={2} />
+      ]} stroke={strokeColor} strokeWidth={2} onContextMenu={handleCtx} />
       <Line points={[
         px - hw * Math.cos(angle) - nx * off, py - hw * Math.sin(angle) - ny * off,
         px + hw * Math.cos(angle) - nx * off, py + hw * Math.sin(angle) - ny * off,
-      ]} stroke="#38BDF8" strokeWidth={2} />
-      <Text x={px - 6} y={py - 18} text="x" fontSize={14} fill="#EF4444" onClick={onDelete} />
+      ]} stroke={strokeColor} strokeWidth={2} onContextMenu={handleCtx} />
+      <Line points={[
+        px - hw * Math.cos(angle), py - hw * Math.sin(angle),
+        px + hw * Math.cos(angle), py + hw * Math.sin(angle),
+      ]} stroke={strokeColor} strokeWidth={1} onContextMenu={handleCtx} />
+      {!isBaie && (
+        <Line points={[
+          px + (sens === 1 ? -1 : 1) * hw * Math.cos(angle),
+          py + (sens === 1 ? -1 : 1) * hw * Math.sin(angle),
+          px + nx * off * 3, py + ny * off * 3,
+        ]} stroke={strokeColor} strokeWidth={1} dash={[4, 3]} onContextMenu={handleCtx} />
+      )}
     </>
   );
 }
 
-function FixeShape({ m, scale, bounds, pad, onDelete, onDragEnd }: {
-  m: MeublePlacement; scale: number;
-  bounds: { minX: number; minY: number }; pad: number;
-  onDelete: () => void; onDragEnd: (x: number, y: number) => void;
-}) {
-  const w = m.largeur * scale, h = m.hauteur * scale;
-  const sx = pad + (m.x - bounds.minX) * scale;
-  const sy = pad + (m.y - bounds.minY) * scale;
-  const fs = Math.max(8, Math.min(Math.min(w, h) * 0.18, 13));
+// ══════════════════════════════════════════════════════════
+// Furniture rendering — clean pastel style (like landing header)
+// ══════════════════════════════════════════════════════════
+
+export function renderFurnitureSymbol(
+  catalogueId: string,
+  w: number, h: number,
+  nom: string,
+  fixe: boolean,
+): React.JSX.Element {
+  const color = getPastelColor(catalogueId);
+  const strokeColor = fixe ? 'rgba(0,0,0,0.2)' : 'rgba(0,0,0,0.12)';
+  const strokeW = fixe ? 1.5 : 1;
+  const dash = fixe ? [5, 3] : undefined;
+  const fs = Math.max(7, Math.min(Math.min(w, h) * 0.18, 12));
 
   return (
     <>
-      <Rect x={sx} y={sy} width={w} height={h}
-        fill={m.couleur} opacity={0.85} cornerRadius={3}
-        stroke="#1E40AF" strokeWidth={2} dash={[6, 3]}
-        draggable onDragEnd={(e) => {
-          const nx = snap((e.target.x() - pad) / scale + bounds.minX, SNAP);
-          const ny = snap((e.target.y() - pad) / scale + bounds.minY, SNAP);
-          e.target.x(pad + (nx - bounds.minX) * scale);
-          e.target.y(pad + (ny - bounds.minY) * scale);
-          onDragEnd(nx, ny);
-        }} />
-      <Text x={sx} y={sy} width={w} height={h} text={m.nom}
-        align="center" verticalAlign="middle" fontSize={fs} fill="#FFFFFF" listening={false} />
-      <Text x={sx + w - 14} y={sy + 2} text="x" fontSize={14} fill="#EF4444"
-        onClick={(e) => { e.cancelBubble = true; onDelete(); }} />
+      <Rect x={-w / 2} y={-h / 2} width={w} height={h}
+        fill={color} stroke={strokeColor} strokeWidth={strokeW} dash={dash} cornerRadius={3} />
+      {nom && (
+        <Text x={-w / 2} y={-fs / 2} width={w} text={nom}
+          align="center" fontSize={fs} fontFamily="Inter" fontStyle="500"
+          fill="rgba(0,0,0,0.45)" listening={false} />
+      )}
     </>
+  );
+}
+
+// ══════════════════════════════════════════════════════════
+// Draggable furniture group
+// ══════════════════════════════════════════════════════════
+
+function FurnitureGroup({ m, toSc, scale, fixe, onDelete, onDragEnd, onSetRotation, onResize, toCm }: {
+  m: MeublePlacement;
+  toSc: (x: number, y: number) => { sx: number; sy: number };
+  scale: number; fixe: boolean;
+  onDelete: () => void;
+  onDragEnd: (x: number, y: number) => void;
+  onSetRotation: (angle: number) => void;
+  onResize: (largeur: number, hauteur: number) => void;
+  toCm: (sx: number, sy: number) => { x: number; y: number };
+}) {
+  const [liveDims, setLiveDims] = useState<{ l: number; h: number } | null>(null);
+  const curL = liveDims ? liveDims.l : m.largeur;
+  const curH = liveDims ? liveDims.h : m.hauteur;
+  const w = curL * scale;
+  const h = curH * scale;
+  const center = toSc(m.x + m.largeur / 2, m.y + m.hauteur / 2);
+
+  return (
+    <Group x={center.sx} y={center.sy} rotation={m.rotation}
+      draggable
+      onContextMenu={(e) => { e.evt.preventDefault(); e.cancelBubble = true; onDelete(); }}
+      onDragEnd={(e) => {
+        const newCm = toCm(e.target.x(), e.target.y());
+        const nx = snap(newCm.x - m.largeur / 2, SNAP);
+        const ny = snap(newCm.y - m.hauteur / 2, SNAP);
+        const snapped = toSc(nx + m.largeur / 2, ny + m.hauteur / 2);
+        e.target.x(snapped.sx); e.target.y(snapped.sy);
+        onDragEnd(nx, ny);
+      }}
+      onWheel={(e) => {
+        e.evt.preventDefault(); e.cancelBubble = true;
+        const delta = e.evt.deltaY > 0 ? 5 : -5;
+        onSetRotation(((m.rotation + delta) % 360 + 360) % 360);
+      }}>
+      {renderFurnitureSymbol(m.catalogueId, w, h, m.nom, fixe)}
+      {/* Resize handle */}
+      <Circle x={w / 2} y={h / 2} radius={5}
+        fill="rgba(0,0,0,0.08)" stroke="rgba(0,0,0,0.15)" strokeWidth={1}
+        draggable
+        onMouseEnter={(e) => { e.target.getStage()!.container().style.cursor = 'nwse-resize'; }}
+        onMouseLeave={(e) => { e.target.getStage()!.container().style.cursor = 'default'; }}
+        onDragMove={(e) => {
+          e.cancelBubble = true;
+          const minPx = 20 * scale;
+          const nx = Math.max(-w / 2 + minPx, e.target.x());
+          const ny = Math.max(-h / 2 + minPx, e.target.y());
+          e.target.x(nx); e.target.y(ny);
+          const newL = snap(Math.max(20, (nx + w / 2) / scale), 5);
+          const newH = snap(Math.max(20, (ny + h / 2) / scale), 5);
+          setLiveDims({ l: newL, h: newH });
+        }}
+        onDragEnd={(e) => {
+          e.cancelBubble = true;
+          const newL = liveDims ? liveDims.l : m.largeur;
+          const newH = liveDims ? liveDims.h : m.hauteur;
+          setLiveDims(null);
+          e.target.x(newL * scale / 2); e.target.y(newH * scale / 2);
+          onResize(newL, newH);
+        }} />
+    </Group>
   );
 }
