@@ -1,12 +1,12 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { Stage, Layer, Line, Circle, Text, Rect } from 'react-konva';
 import { useStore } from '../store';
-import { snap, dist, douglasPeucker, arcThroughThreePoints, distPointSegment, polyBounds } from '../utils/geometry';
+import { snap, dist, douglasPeucker, arcThroughThreePoints, distPointSegment, polyBounds, projeterSur, pointSurSegment } from '../utils/geometry';
 import { generateTemplate } from '../utils/templates';
 import type { Point, WallLine, TemplateShape } from '../types';
 
 const MAX_CM = 1000;
-const GRID = 50;
+const GRID = 10;
 const CLOSE_RADIUS = 30;
 const ERASER_RADIUS = 20;
 
@@ -131,22 +131,59 @@ export function CanvasDessin() {
 
   // Snap to existing wall endpoints
   const snapToWallPoints = (cm: Point): Point => {
-    const allPts: Point[] = [];
+    let best = cm;
+    let bestD = CLOSE_RADIUS;
+    // 1. Snap to wall endpoints (vertices)
     for (const w of drawnWalls) {
-      allPts.push(w.debut, w.fin);
+      for (const p of [w.debut, w.fin]) {
+        const d = dist(cm, p);
+        if (d < bestD) { bestD = d; best = { ...p }; }
+      }
     }
-    for (const p of allPts) {
-      if (dist(cm, p) < CLOSE_RADIUS) return { ...p };
+    // 2. Snap to closest point on existing wall segments
+    for (const w of drawnWalls) {
+      const t = projeterSur(cm, w.debut, w.fin);
+      const p = pointSurSegment(w.debut, w.fin, t);
+      const d = dist(cm, p);
+      if (d < bestD) { bestD = d; best = p; }
     }
-    return cm;
+    return best;
   };
 
-  // Snap to contour points (inner wall phase)
+  // Snap to any relevant point: contour vertices, inner wall endpoints,
+  // and closest projection on contour/inner wall segments
   const snapToContour = (cm: Point): Point => {
+    let best = cm;
+    let bestD = CLOSE_RADIUS;
+    // 1. Snap to contour vertices
     for (const p of contourPoints) {
-      if (dist(cm, p) < CLOSE_RADIUS) return { ...p };
+      const d = dist(cm, p);
+      if (d < bestD) { bestD = d; best = { ...p }; }
     }
-    return cm;
+    // 2. Snap to inner wall endpoints
+    for (const w of innerWalls) {
+      for (const p of [w.debut, w.fin]) {
+        const d = dist(cm, p);
+        if (d < bestD) { bestD = d; best = { ...p }; }
+      }
+    }
+    // 3. Snap to closest point on contour segments
+    for (let i = 0; i < contourPoints.length; i++) {
+      const a = contourPoints[i];
+      const b = contourPoints[(i + 1) % contourPoints.length];
+      const t = projeterSur(cm, a, b);
+      const p = pointSurSegment(a, b, t);
+      const d = dist(cm, p);
+      if (d < bestD) { bestD = d; best = p; }
+    }
+    // 4. Snap to closest point on inner wall segments
+    for (const w of innerWalls) {
+      const t = projeterSur(cm, w.debut, w.fin);
+      const p = pointSurSegment(w.debut, w.fin, t);
+      const d = dist(cm, p);
+      if (d < bestD) { bestD = d; best = p; }
+    }
+    return best;
   };
 
   // ── WHEEL ZOOM ──
@@ -333,16 +370,26 @@ export function CanvasDessin() {
         y: snap(p.y, GRID),
       }));
       if (phase === 'contour_draw') {
+        // Snap first & last points to existing wall endpoints for closure
+        if (snapped.length > 0) {
+          snapped[0] = snapToWallPoints(snapped[0]);
+          snapped[snapped.length - 1] = snapToWallPoints(snapped[snapped.length - 1]);
+        }
         const walls: WallLine[] = [];
         for (let i = 0; i < snapped.length - 1; i++) {
-          if (dist(snapped[i], snapped[i + 1]) > 10) {
+          if (dist(snapped[i], snapped[i + 1]) > 5) {
             walls.push({ debut: snapped[i], fin: snapped[i + 1] });
           }
         }
         if (walls.length > 0) addDrawnWalls(walls);
       } else if (phase === 'murs_interieurs') {
+        // Snap first & last points to contour/inner wall points
+        if (snapped.length > 0) {
+          snapped[0] = snapToContour(snapped[0]);
+          snapped[snapped.length - 1] = snapToContour(snapped[snapped.length - 1]);
+        }
         for (let i = 0; i < snapped.length - 1; i++) {
-          if (dist(snapped[i], snapped[i + 1]) > 10) {
+          if (dist(snapped[i], snapped[i + 1]) > 5) {
             useStore.getState().setInnerWallStart(snapped[i]);
             useStore.getState().addInnerWall(snapped[i + 1]);
           }
@@ -369,20 +416,42 @@ export function CanvasDessin() {
 
   const origin = toSc({ x: 0, y: 0 });
 
-  // Grid lines — dark on white
+  // Grid lines — millimeter paper style (green)
   const grid: React.JSX.Element[] = [];
-  for (let cm = 0; cm <= MAX_CM; cm += 50) {
-    const isMeter = cm % 100 === 0;
+  // Finest level: every 10cm
+  for (let cm = 0; cm <= MAX_CM; cm += 10) {
+    if (cm % 50 === 0) continue; // drawn by next levels
     const vStart = toSc({ x: cm, y: 0 });
     const vEnd = toSc({ x: cm, y: MAX_CM });
     const hStart = toSc({ x: 0, y: cm });
     const hEnd = toSc({ x: MAX_CM, y: cm });
     grid.push(<Line key={`v${cm}`} points={[vStart.x, vStart.y, vEnd.x, vEnd.y]}
-      stroke={isMeter ? 'rgba(0,0,0,0.12)' : 'rgba(0,0,0,0.05)'}
-      strokeWidth={isMeter ? 0.8 : 0.5} />);
+      stroke="rgba(0,160,120,0.15)" strokeWidth={0.3} />);
     grid.push(<Line key={`h${cm}`} points={[hStart.x, hStart.y, hEnd.x, hEnd.y]}
-      stroke={isMeter ? 'rgba(0,0,0,0.12)' : 'rgba(0,0,0,0.05)'}
-      strokeWidth={isMeter ? 0.8 : 0.5} />);
+      stroke="rgba(0,160,120,0.15)" strokeWidth={0.3} />);
+  }
+  // Medium level: every 50cm
+  for (let cm = 0; cm <= MAX_CM; cm += 50) {
+    if (cm % 100 === 0) continue; // drawn by next level
+    const vStart = toSc({ x: cm, y: 0 });
+    const vEnd = toSc({ x: cm, y: MAX_CM });
+    const hStart = toSc({ x: 0, y: cm });
+    const hEnd = toSc({ x: MAX_CM, y: cm });
+    grid.push(<Line key={`v${cm}`} points={[vStart.x, vStart.y, vEnd.x, vEnd.y]}
+      stroke="rgba(0,160,120,0.3)" strokeWidth={0.5} />);
+    grid.push(<Line key={`h${cm}`} points={[hStart.x, hStart.y, hEnd.x, hEnd.y]}
+      stroke="rgba(0,160,120,0.3)" strokeWidth={0.5} />);
+  }
+  // Thick level: every 1m (100cm)
+  for (let cm = 0; cm <= MAX_CM; cm += 100) {
+    const vStart = toSc({ x: cm, y: 0 });
+    const vEnd = toSc({ x: cm, y: MAX_CM });
+    const hStart = toSc({ x: 0, y: cm });
+    const hEnd = toSc({ x: MAX_CM, y: cm });
+    grid.push(<Line key={`v${cm}`} points={[vStart.x, vStart.y, vEnd.x, vEnd.y]}
+      stroke="rgba(0,160,120,0.5)" strokeWidth={0.8} />);
+    grid.push(<Line key={`h${cm}`} points={[hStart.x, hStart.y, hEnd.x, hEnd.y]}
+      stroke="rgba(0,160,120,0.5)" strokeWidth={0.8} />);
   }
 
   // Labels (0..10 m)
@@ -390,8 +459,8 @@ export function CanvasDessin() {
   for (let m = 0; m <= 10; m++) {
     const px = toSc({ x: m * 100, y: 0 });
     const py = toSc({ x: 0, y: m * 100 });
-    labels.push(<Text key={`lx${m}`} x={px.x - 4} y={px.y - 16} text={`${m}`} fontSize={10} fill="rgba(0,0,0,0.25)" fontFamily="Inter" />);
-    if (m > 0) labels.push(<Text key={`ly${m}`} x={py.x - 18} y={py.y - 5} text={`${m}`} fontSize={10} fill="rgba(0,0,0,0.25)" fontFamily="Inter" />);
+    labels.push(<Text key={`lx${m}`} x={px.x - 4} y={px.y - 16} text={`${m}`} fontSize={10} fill="rgba(0,130,100,0.5)" fontFamily="Inter" />);
+    if (m > 0) labels.push(<Text key={`ly${m}`} x={py.x - 18} y={py.y - 5} text={`${m}`} fontSize={10} fill="rgba(0,130,100,0.5)" fontFamily="Inter" />);
   }
 
   const mousePx = mouse ? toSc(mouse) : null;
@@ -698,10 +767,10 @@ export function CanvasDessin() {
           <Rect x={0} y={0} width={sz.w} height={sz.h} fill="#FFFFFF" />
           {/* Grid area */}
           <Rect x={origin.x} y={origin.y} width={gridPx} height={gridPx}
-            fill="rgba(0,0,0,0.02)" stroke="rgba(0,0,0,0.08)" strokeWidth={0.5} cornerRadius={2} />
+            fill="#f8fdf8" stroke="rgba(0,160,120,0.3)" strokeWidth={0.8} />
           {grid}
           {labels}
-          <Text x={origin.x + gridPx + 6} y={origin.y - 16} text="m" fontSize={10} fill="rgba(0,0,0,0.2)" fontFamily="Inter" />
+          <Text x={origin.x + gridPx + 6} y={origin.y - 16} text="m" fontSize={10} fill="rgba(0,130,100,0.5)" fontFamily="Inter" />
 
           {/* Phase: surface_input / mode_choice */}
           {(phase === 'surface_input' || phase === 'mode_choice') && renderSurfacePreview()}

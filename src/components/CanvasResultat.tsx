@@ -212,49 +212,47 @@ function ElMurResultLight({ el, murs, toSc, scale }: {
     ]} stroke={FLOOR} strokeWidth={6} />
   );
 
+  // Endpoints of the opening on the wall
+  const x1 = px - hw * Math.cos(angle), y1 = py - hw * Math.sin(angle);
+  const x2 = px + hw * Math.cos(angle), y2 = py + hw * Math.sin(angle);
+
   if (el.type === 'porte') {
     const pivotDir = sens === 1 ? -1 : 1;
     const pivotX = px + pivotDir * hw * Math.cos(angle);
     const pivotY = py + pivotDir * hw * Math.sin(angle);
     const arcRotation = sens === 1 ? deg - 90 : deg + 90;
+    const leafAngleRad = (arcRotation * Math.PI) / 180;
+    const leafLen = el.largeur * scale * 0.9;
+    const leafEndX = pivotX + leafLen * Math.cos(leafAngleRad);
+    const leafEndY = pivotY + leafLen * Math.sin(leafAngleRad);
     return (
       <>
         {wallGap}
+        <Line points={[pivotX, pivotY, leafEndX, leafEndY]}
+          stroke="rgba(0,0,0,0.3)" strokeWidth={1} />
         <Arc x={pivotX} y={pivotY}
-          innerRadius={0} outerRadius={el.largeur * scale * 0.9}
+          innerRadius={leafLen} outerRadius={leafLen}
           angle={90} rotation={arcRotation}
-          fill="rgba(59,130,246,0.08)" stroke="rgba(0,0,0,0.25)" strokeWidth={1} />
+          stroke="rgba(0,0,0,0.2)" strokeWidth={0.8} dash={[4, 4]} />
       </>
     );
   }
 
+  // Window
   const nx = -Math.sin(angle), ny = Math.cos(angle);
-  const off = 3 * scale;
-  const isBaie = el.fenetreVariant === 'baie_vitree';
-  const strokeColor = '#38BDF8';
+  const glassW = 3 * scale;
 
   return (
     <>
       {wallGap}
       <Line points={[
-        px - hw * Math.cos(angle) + nx * off, py - hw * Math.sin(angle) + ny * off,
-        px + hw * Math.cos(angle) + nx * off, py + hw * Math.sin(angle) + ny * off,
-      ]} stroke={strokeColor} strokeWidth={2} />
-      <Line points={[
-        px - hw * Math.cos(angle) - nx * off, py - hw * Math.sin(angle) - ny * off,
-        px + hw * Math.cos(angle) - nx * off, py + hw * Math.sin(angle) - ny * off,
-      ]} stroke={strokeColor} strokeWidth={2} />
-      <Line points={[
-        px - hw * Math.cos(angle), py - hw * Math.sin(angle),
-        px + hw * Math.cos(angle), py + hw * Math.sin(angle),
-      ]} stroke={strokeColor} strokeWidth={1} />
-      {!isBaie && (
-        <Line points={[
-          px + (sens === 1 ? -1 : 1) * hw * Math.cos(angle),
-          py + (sens === 1 ? -1 : 1) * hw * Math.sin(angle),
-          px + nx * off * 3, py + ny * off * 3,
-        ]} stroke={strokeColor} strokeWidth={1} dash={[4, 3]} />
-      )}
+        x1 + nx * glassW, y1 + ny * glassW,
+        x2 + nx * glassW, y2 + ny * glassW,
+        x2 - nx * glassW, y2 - ny * glassW,
+        x1 - nx * glassW, y1 - ny * glassW,
+      ]} closed fill="rgba(56,189,248,0.15)" stroke="rgba(56,189,248,0.6)" strokeWidth={1} />
+      <Line points={[x1, y1, x2, y2]}
+        stroke="rgba(56,189,248,0.5)" strokeWidth={0.5} />
     </>
   );
 }

@@ -75,8 +75,8 @@ export function Toolbar({ stageRef, onBackToLanding }: Props) {
               const active = mode === s.key;
               const ok = canNavigate(s.key);
               return (
-                <span key={s.key} style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
-                  {i > 0 && <span className="pill-step-dot">&middot;</span>}
+                <span key={s.key} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  {i > 0 && <span className="pill-step-sep" />}
                   <button
                     onClick={() => ok && setMode(s.key)}
                     disabled={!ok}
@@ -103,22 +103,22 @@ export function Toolbar({ stageRef, onBackToLanding }: Props) {
           {/* Non-places warning */}
           {nonPlaces.length > 0 && mode === 'resultat' && (
             <span className="pill-badge-warn">
-              {nonPlaces.length} non place{nonPlaces.length > 1 ? 's' : ''}
+              {nonPlaces.length} non plac&eacute;{nonPlaces.length > 1 ? 's' : ''}
             </span>
           )}
+        </div>
 
-          {/* Zoom */}
-          <div className="pill-zoom">
-            <input
-              type="range"
-              min="0.5"
-              max="3"
-              step="0.1"
-              value={echelle}
-              onChange={(e) => setEchelle(parseFloat(e.target.value))}
-              className="pill-zoom-slider"
-            />
-          </div>
+        {/* Zoom — right side */}
+        <div className="pill-zoom">
+          <input
+            type="range"
+            min="0.5"
+            max="3"
+            step="0.1"
+            value={echelle}
+            onChange={(e) => setEchelle(parseFloat(e.target.value))}
+            className="pill-zoom-slider"
+          />
         </div>
 
         {/* Burger / Close */}

@@ -2,10 +2,9 @@ import React, { useRef, useState, useEffect } from 'react';
 import { Stage, Layer, Line, Rect, Text, Arc, Group, Circle } from 'react-konva';
 import { useStore } from '../store';
 import type { ElementMur, MeublePlacement, WallLine } from '../types';
-import { pointSurSegment, angleSegment, projeterSur, snap } from '../utils/geometry';
+import { pointSurSegment, angleSegment, projeterSur } from '../utils/geometry';
 
 const MAX_CM = 1000;
-const SNAP = 10;
 const FLOOR = '#FFFFFF';
 const WALL_COLOR = '#1A1A1A';
 
@@ -177,7 +176,7 @@ export function CanvasAmenagement() {
     ajouterFixe({
       catalogueId: item.id, nom: item.nom,
       largeur: item.largeur, hauteur: item.hauteur, couleur: item.couleur,
-      x: snap(cm.x - item.largeur / 2, SNAP), y: snap(cm.y - item.hauteur / 2, SNAP),
+      x: cm.x - item.largeur / 2, y: cm.y - item.hauteur / 2,
       rotation: 0, fixe: true,
     });
   };
@@ -314,51 +313,55 @@ function ElMurLight({ el, murs, toSc, scale, onContextMenu }: {
 
   const handleCtx = (e: any) => { e.evt.preventDefault(); e.cancelBubble = true; onContextMenu('delete'); };
 
+  // Endpoints of the opening on the wall
+  const x1 = px - hw * Math.cos(angle), y1 = py - hw * Math.sin(angle);
+  const x2 = px + hw * Math.cos(angle), y2 = py + hw * Math.sin(angle);
+
   if (el.type === 'porte') {
+    // Door: pivot hinge + quarter-circle arc (dashed)
     const pivotDir = sens === 1 ? -1 : 1;
     const pivotX = px + pivotDir * hw * Math.cos(angle);
     const pivotY = py + pivotDir * hw * Math.sin(angle);
     const arcRotation = sens === 1 ? deg - 90 : deg + 90;
+    // Door leaf line from pivot to open position
+    const leafAngleRad = (arcRotation * Math.PI) / 180;
+    const leafLen = el.largeur * scale * 0.9;
+    const leafEndX = pivotX + leafLen * Math.cos(leafAngleRad);
+    const leafEndY = pivotY + leafLen * Math.sin(leafAngleRad);
     return (
       <>
         {wallGap}
+        {/* Door leaf (thin solid line) */}
+        <Line points={[pivotX, pivotY, leafEndX, leafEndY]}
+          stroke="rgba(0,0,0,0.3)" strokeWidth={1} onContextMenu={handleCtx} />
+        {/* Quarter-circle swing arc (dashed) */}
         <Arc x={pivotX} y={pivotY}
-          innerRadius={0} outerRadius={el.largeur * scale * 0.9}
+          innerRadius={leafLen} outerRadius={leafLen}
           angle={90} rotation={arcRotation}
-          fill="rgba(59,130,246,0.08)" stroke="rgba(0,0,0,0.25)" strokeWidth={1}
+          stroke="rgba(0,0,0,0.2)" strokeWidth={0.8} dash={[4, 4]}
           onContextMenu={handleCtx} />
       </>
     );
   }
 
-  // Window
+  // Window: filled glass rectangle between two frame lines
   const nx = -Math.sin(angle), ny = Math.cos(angle);
-  const off = 3 * scale;
-  const isBaie = el.fenetreVariant === 'baie_vitree';
-  const strokeColor = '#38BDF8';
+  const glassW = 3 * scale; // glass thickness in px
 
   return (
     <>
       {wallGap}
+      {/* Glass fill (light blue rectangle) */}
       <Line points={[
-        px - hw * Math.cos(angle) + nx * off, py - hw * Math.sin(angle) + ny * off,
-        px + hw * Math.cos(angle) + nx * off, py + hw * Math.sin(angle) + ny * off,
-      ]} stroke={strokeColor} strokeWidth={2} onContextMenu={handleCtx} />
-      <Line points={[
-        px - hw * Math.cos(angle) - nx * off, py - hw * Math.sin(angle) - ny * off,
-        px + hw * Math.cos(angle) - nx * off, py + hw * Math.sin(angle) - ny * off,
-      ]} stroke={strokeColor} strokeWidth={2} onContextMenu={handleCtx} />
-      <Line points={[
-        px - hw * Math.cos(angle), py - hw * Math.sin(angle),
-        px + hw * Math.cos(angle), py + hw * Math.sin(angle),
-      ]} stroke={strokeColor} strokeWidth={1} onContextMenu={handleCtx} />
-      {!isBaie && (
-        <Line points={[
-          px + (sens === 1 ? -1 : 1) * hw * Math.cos(angle),
-          py + (sens === 1 ? -1 : 1) * hw * Math.sin(angle),
-          px + nx * off * 3, py + ny * off * 3,
-        ]} stroke={strokeColor} strokeWidth={1} dash={[4, 3]} onContextMenu={handleCtx} />
-      )}
+        x1 + nx * glassW, y1 + ny * glassW,
+        x2 + nx * glassW, y2 + ny * glassW,
+        x2 - nx * glassW, y2 - ny * glassW,
+        x1 - nx * glassW, y1 - ny * glassW,
+      ]} closed fill="rgba(56,189,248,0.15)" stroke="rgba(56,189,248,0.6)" strokeWidth={1}
+        onContextMenu={handleCtx} />
+      {/* Center line (mullion) */}
+      <Line points={[x1, y1, x2, y2]}
+        stroke="rgba(56,189,248,0.5)" strokeWidth={0.5} onContextMenu={handleCtx} />
     </>
   );
 }
@@ -419,10 +422,10 @@ function FurnitureGroup({ m, toSc, scale, fixe, onDelete, onDragEnd, onSetRotati
       onContextMenu={(e) => { e.evt.preventDefault(); e.cancelBubble = true; onDelete(); }}
       onDragEnd={(e) => {
         const newCm = toCm(e.target.x(), e.target.y());
-        const nx = snap(newCm.x - m.largeur / 2, SNAP);
-        const ny = snap(newCm.y - m.hauteur / 2, SNAP);
-        const snapped = toSc(nx + m.largeur / 2, ny + m.hauteur / 2);
-        e.target.x(snapped.sx); e.target.y(snapped.sy);
+        const nx = newCm.x - m.largeur / 2;
+        const ny = newCm.y - m.hauteur / 2;
+        const pos = toSc(nx + m.largeur / 2, ny + m.hauteur / 2);
+        e.target.x(pos.sx); e.target.y(pos.sy);
         onDragEnd(nx, ny);
       }}
       onWheel={(e) => {
