@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import type { AppMode, DrawPhase, DrawMethod, DrawTool, TemplateShape, TemplateParams, ElementMur, FenetreVariant, MeublePlacement, Piece, Point, WallLine } from '../types';
 import { catalogue } from '../data/catalogue';
 import { genererPlacement } from '../utils/placement';
-import { aire, polyBounds } from '../utils/geometry';
+import { aire, polyBounds, wallsToPolygon } from '../utils/geometry';
 import { defaultTemplateParams, generateTemplate } from '../utils/templates';
 
 interface State {
@@ -37,10 +37,6 @@ interface State {
   freehandStroke: Point[];
   setFreehandStroke: (pts: Point[]) => void;
 
-  // Arc tool state
-  arcPoints: Point[];
-  addArcPoint: (p: Point) => void;
-  clearArcPoints: () => void;
 
   // Template state
   templateShape: TemplateShape;
@@ -87,6 +83,8 @@ interface State {
   placements: MeublePlacement[];
   nonPlaces: string[];
   isGenerated: boolean;
+  selectedPlacement: number | null;
+  setSelectedPlacement: (i: number | null) => void;
   generer: () => void;
   mettreAJourPlacement: (i: number, u: Partial<MeublePlacement>) => void;
   supprimerPlacement: (i: number) => void;
@@ -125,7 +123,7 @@ export const useStore = create<State>((set, get) => ({
     }
   },
   activeTool: 'line',
-  setActiveTool: (activeTool) => set({ activeTool, lineStart: null, freehandStroke: [], arcPoints: [] }),
+  setActiveTool: (activeTool) => set({ activeTool, lineStart: null, freehandStroke: [] }),
 
   // Contour
   contourPoints: [],
@@ -141,7 +139,7 @@ export const useStore = create<State>((set, get) => ({
     drawnWalls: s.drawnWalls.slice(0, -1),
   })),
   clearDrawnWalls: () => set({
-    drawnWalls: [], lineStart: null, freehandStroke: [], arcPoints: [],
+    drawnWalls: [], lineStart: null, freehandStroke: [],
     contourPoints: [], contourClosed: false,
   }),
 
@@ -153,10 +151,6 @@ export const useStore = create<State>((set, get) => ({
   freehandStroke: [],
   setFreehandStroke: (pts) => set({ freehandStroke: pts }),
 
-  // Arc
-  arcPoints: [],
-  addArcPoint: (p) => set((s) => ({ arcPoints: [...s.arcPoints, p] })),
-  clearArcPoints: () => set({ arcPoints: [] }),
 
   // Template
   templateShape: 'rectangle',
@@ -187,31 +181,44 @@ export const useStore = create<State>((set, get) => ({
   drawError: null,
   setDrawError: (e) => set({ drawError: e }),
 
-  // Validate contour: check walls form a closed polygon, then proceed
+  // Validate contour: build a closed polygon from wall segments (order/direction agnostic)
+  // Always tries to extract a valid polygon — graph-based first, then naive fallback
   validerContour: () => {
     const { drawnWalls } = get();
     if (drawnWalls.length < 3) {
       set({ drawError: 'Il faut au moins 3 murs pour former une piece.' });
       return;
     }
-    // Check continuity: each wall's fin should match next wall's debut
-    for (let i = 0; i < drawnWalls.length - 1; i++) {
-      const fin = drawnWalls[i].fin;
-      const debut = drawnWalls[i + 1].debut;
-      if (Math.abs(fin.x - debut.x) > 2 || Math.abs(fin.y - debut.y) > 2) {
-        set({ drawError: 'Les murs ne forment pas un contour continu. Reliez tous les murs entre eux.' });
-        return;
+
+    // Try graph-based extraction (handles mixed directions)
+    let pts = wallsToPolygon(drawnWalls);
+
+    // Fallback: naive ordered points (debut of each wall + last fin)
+    if (!pts) {
+      const naive: Point[] = drawnWalls.map(w => w.debut);
+      naive.push(drawnWalls[drawnWalls.length - 1].fin);
+      // Deduplicate consecutive identical points
+      const deduped: Point[] = [naive[0]];
+      for (let i = 1; i < naive.length; i++) {
+        if (Math.abs(naive[i].x - deduped[deduped.length - 1].x) > 2 ||
+            Math.abs(naive[i].y - deduped[deduped.length - 1].y) > 2) {
+          deduped.push(naive[i]);
+        }
       }
+      // Remove last point if it matches first (closure)
+      if (deduped.length > 1 &&
+          Math.abs(deduped[0].x - deduped[deduped.length - 1].x) <= 2 &&
+          Math.abs(deduped[0].y - deduped[deduped.length - 1].y) <= 2) {
+        deduped.pop();
+      }
+      if (deduped.length >= 3) pts = deduped;
     }
-    // Check closure: last wall's fin should match first wall's debut
-    const firstPt = drawnWalls[0].debut;
-    const lastPt = drawnWalls[drawnWalls.length - 1].fin;
-    if (Math.abs(firstPt.x - lastPt.x) > 2 || Math.abs(firstPt.y - lastPt.y) > 2) {
-      set({ drawError: 'Le contour n\'est pas ferme. Reliez le dernier mur au premier point (en rouge).' });
+
+    if (!pts || pts.length < 3) {
+      set({ drawError: 'Impossible d\'extraire un contour valide. Verifiez que les murs forment une forme fermee.' });
       return;
     }
-    // Extract ordered contour points and center on grid
-    const pts: Point[] = drawnWalls.map(w => w.debut);
+
     const MAX_CM = 1000;
     const b = polyBounds(pts);
     const offX = (MAX_CM - (b.maxX - b.minX)) / 2 - b.minX;
@@ -325,6 +332,8 @@ export const useStore = create<State>((set, get) => ({
   placements: [],
   nonPlaces: [],
   isGenerated: false,
+  selectedPlacement: null,
+  setSelectedPlacement: (i) => set({ selectedPlacement: i }),
 
   generer: () => {
     const { selectedIds, piece, fixes, elementsMur } = get();
@@ -346,6 +355,7 @@ export const useStore = create<State>((set, get) => ({
 
   supprimerPlacement: (i) => set((s) => ({
     placements: s.placements.filter((_, idx) => idx !== i),
+    selectedPlacement: null,
   })),
 
   // ── Sauvegarde ──
@@ -407,11 +417,12 @@ export const useStore = create<State>((set, get) => ({
   resetTout: () => set({
     mode: 'dessin', drawPhase: 'surface_input',
     contourPoints: [], contourClosed: false,
-    drawnWalls: [], lineStart: null, freehandStroke: [], arcPoints: [],
+    drawnWalls: [], lineStart: null, freehandStroke: [],
     innerWalls: [], innerWallStart: null,
     piece: null, elementsMur: [], fixes: [],
     selectedIds: new Set(), placements: [], nonPlaces: [],
-    isGenerated: false, placingTool: null as { type: 'porte' | 'fenetre'; variant?: FenetreVariant } | null,
+    isGenerated: false, selectedPlacement: null,
+    placingTool: null as { type: 'porte' | 'fenetre'; variant?: FenetreVariant } | null,
     targetSurfaceM2: 20, drawMethod: null, activeTool: 'line',
     templateShape: 'rectangle', templateParams: null,
     drawError: null,

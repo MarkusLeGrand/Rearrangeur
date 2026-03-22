@@ -47,7 +47,7 @@ export interface MeublePlacement {
 export type AppMode = 'dessin' | 'amenagement' | 'resultat';
 export type DrawPhase = 'surface_input' | 'mode_choice' | 'contour_draw' | 'contour_template' | 'murs_interieurs' | 'validation';
 export type DrawMethod = 'dessiner' | 'generer';
-export type DrawTool = 'line' | 'freehand' | 'arc' | 'eraser';
+export type DrawTool = 'line' | 'freehand' | 'eraser';
 export type TemplateShape = 'rectangle' | 'L' | 'T' | 'U';
 
 export interface TemplateParams {

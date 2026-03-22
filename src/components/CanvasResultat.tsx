@@ -24,6 +24,8 @@ export function CanvasResultat({ stageRef }: Props) {
   const supprimerFixe = useStore((s) => s.supprimerFixe);
   const mettreAJourPlacement = useStore((s) => s.mettreAJourPlacement);
   const supprimerPlacement = useStore((s) => s.supprimerPlacement);
+  const selectedPlacement = useStore((s) => s.selectedPlacement);
+  const setSelectedPlacement = useStore((s) => s.setSelectedPlacement);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [sz, setSz] = useState({ w: 800, h: 600 });
@@ -43,9 +45,11 @@ export function CanvasResultat({ stageRef }: Props) {
   }, []);
 
   const PAD = 40;
-  const baseScale = Math.min((sz.w - PAD * 2) / MAX_CM, (sz.h - PAD * 2) / MAX_CM);
+  const SIDEBAR_W = 290;
+  const freeW = sz.w - SIDEBAR_W;
+  const baseScale = Math.min((freeW - PAD * 2) / MAX_CM, (sz.h - PAD * 2) / MAX_CM);
   const scale = baseScale * echelle;
-  const cx = (sz.w - MAX_CM * scale) / 2;
+  const cx = SIDEBAR_W + (freeW - MAX_CM * scale) / 2;
   const cy = (sz.h - MAX_CM * scale) / 2;
 
   const toSc = (x: number, y: number) => ({
@@ -97,6 +101,10 @@ export function CanvasResultat({ stageRef }: Props) {
     <div ref={containerRef} style={{ flex: 1, overflow: 'hidden', position: 'relative', background: '#FFFFFF' }}>
       <Stage ref={stageRef} width={sz.w} height={sz.h}
         onContextMenu={(e: any) => e.evt.preventDefault()}
+        onClick={(e: any) => {
+          // Deselect when clicking empty area
+          if (e.target === e.target.getStage()) setSelectedPlacement(null);
+        }}
         onMouseDown={handleMouseDown} onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp} onMouseLeave={handleMouseUp}
         onWheel={handleWheel}
@@ -143,6 +151,8 @@ export function CanvasResultat({ stageRef }: Props) {
           {/* Placed furniture */}
           {placements.map((m, i) => (
             <DraggableFurniture key={`p${i}`} m={m} toSc={toSc} toCm={toCm} scale={scale} fixe={false}
+              selected={selectedPlacement === i}
+              onSelect={() => setSelectedPlacement(i)}
               onDelete={() => supprimerPlacement(i)}
               onDragEnd={(x, y) => mettreAJourPlacement(i, { x, y })}
               onSetRotation={(r) => mettreAJourPlacement(i, { rotation: r })}
@@ -259,11 +269,13 @@ function ElMurResultLight({ el, murs, toSc, scale }: {
 
 // ── Draggable furniture ──
 
-function DraggableFurniture({ m, toSc, toCm, scale, fixe, onDelete, onDragEnd, onSetRotation, onResize }: {
+function DraggableFurniture({ m, toSc, toCm, scale, fixe, selected, onSelect, onDelete, onDragEnd, onSetRotation, onResize }: {
   m: MeublePlacement;
   toSc: (x: number, y: number) => { sx: number; sy: number };
   toCm: (sx: number, sy: number) => { x: number; y: number };
   scale: number; fixe: boolean;
+  selected?: boolean;
+  onSelect?: () => void;
   onDelete: () => void;
   onDragEnd: (x: number, y: number) => void;
   onSetRotation: (angle: number) => void;
@@ -279,6 +291,8 @@ function DraggableFurniture({ m, toSc, toCm, scale, fixe, onDelete, onDragEnd, o
   return (
     <Group x={center.sx} y={center.sy} rotation={m.rotation}
       draggable
+      onClick={(e) => { e.cancelBubble = true; onSelect?.(); }}
+      onTap={(e) => { e.cancelBubble = true; onSelect?.(); }}
       onContextMenu={(e) => { e.evt.preventDefault(); e.cancelBubble = true; onDelete(); }}
       onDragEnd={(e) => {
         const newCm = toCm(e.target.x(), e.target.y());
@@ -293,6 +307,11 @@ function DraggableFurniture({ m, toSc, toCm, scale, fixe, onDelete, onDragEnd, o
         const delta = e.evt.deltaY > 0 ? 5 : -5;
         onSetRotation(((m.rotation + delta) % 360 + 360) % 360);
       }}>
+      {selected && (
+        <Rect x={-w / 2 - 3} y={-h / 2 - 3} width={w + 6} height={h + 6}
+          stroke="#E76F51" strokeWidth={2} dash={[6, 3]}
+          fill="transparent" cornerRadius={3} />
+      )}
       {renderFurnitureSymbol(m.catalogueId, w, h, m.nom, fixe)}
       <Circle x={w / 2} y={h / 2} radius={5}
         fill="rgba(0,0,0,0.08)" stroke="rgba(0,0,0,0.15)" strokeWidth={1}

@@ -1,7 +1,7 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { Stage, Layer, Line, Circle, Text, Rect } from 'react-konva';
 import { useStore } from '../store';
-import { snap, dist, douglasPeucker, arcThroughThreePoints, distPointSegment, polyBounds, projeterSur, pointSurSegment } from '../utils/geometry';
+import { snap, dist, douglasPeucker, distPointSegment, polyBounds, projeterSur, pointSurSegment, wallsSurface } from '../utils/geometry';
 import { generateTemplate } from '../utils/templates';
 import type { Point, WallLine, TemplateShape } from '../types';
 
@@ -40,10 +40,6 @@ export function CanvasDessin() {
   const setLineStart = useStore((s) => s.setLineStart);
   const freehandStroke = useStore((s) => s.freehandStroke);
   const setFreehandStroke = useStore((s) => s.setFreehandStroke);
-  const arcPoints = useStore((s) => s.arcPoints);
-  const addArcPoint = useStore((s) => s.addArcPoint);
-  const clearArcPoints = useStore((s) => s.clearArcPoints);
-
   // Template state
   const templateParams = useStore((s) => s.templateParams);
   const updateTemplateParam = useStore((s) => s.updateTemplateParam);
@@ -57,6 +53,10 @@ export function CanvasDessin() {
   const innerWallStart = useStore((s) => s.innerWallStart);
   const setInnerWallStart = useStore((s) => s.setInnerWallStart);
   const addInnerWall = useStore((s) => s.addInnerWall);
+
+  // Validation
+  const validerContour = useStore((s) => s.validerContour);
+  const setDrawError = useStore((s) => s.setDrawError);
 
   // Zoom
   const echelle = useStore((s) => s.echelle);
@@ -83,13 +83,14 @@ export function CanvasDessin() {
     return () => ro.disconnect();
   }, []);
 
-  // ── Coordinate system with zoom + pan — grid CENTERED ──
+  // ── Coordinate system with zoom + pan — grid centered in free area ──
   const PAD = 40;
-  const baseScale = Math.min((sz.w - PAD * 2) / MAX_CM, (sz.h - PAD * 2) / MAX_CM);
+  const SIDEBAR_W = 290;
+  const freeW = sz.w - SIDEBAR_W;
+  const baseScale = Math.min((freeW - PAD * 2) / MAX_CM, (sz.h - PAD * 2) / MAX_CM);
   const scale = baseScale * echelle;
   const gridPx = MAX_CM * scale;
-  // Center offset: places grid in the middle of the canvas
-  const cx = (sz.w - gridPx) / 2;
+  const cx = SIDEBAR_W + (freeW - gridPx) / 2;
   const cy = (sz.h - gridPx) / 2;
 
   const toSc = (p: Point) => ({
@@ -225,7 +226,6 @@ export function CanvasDessin() {
       const cm = toCm(pos.x, pos.y);
       switch (activeTool) {
         case 'line': handleLineTool(cm); break;
-        case 'arc': handleArcTool(cm); break;
         case 'eraser': handleEraserTool(cm); break;
         default: break;
       }
@@ -233,7 +233,6 @@ export function CanvasDessin() {
       const cm = toCm(pos.x, pos.y);
       switch (activeTool) {
         case 'line': handleLineToolInner(cm); break;
-        case 'arc': handleArcToolInner(cm); break;
         case 'eraser': handleEraserToolInner(cm); break;
         default: break;
       }
@@ -246,22 +245,24 @@ export function CanvasDessin() {
       setLineStart(snapped);
     } else {
       addDrawnWall({ debut: lineStart, fin: snapped });
-      setLineStart(snapped);
-    }
-  };
-
-  const handleArcTool = (cm: Point) => {
-    const snapped = snapToWallPoints(cm);
-    if (arcPoints.length < 2) {
-      addArcPoint(snapped);
-    } else {
-      const pts = arcThroughThreePoints(arcPoints[0], arcPoints[1], snapped, 16);
-      const walls: WallLine[] = [];
-      for (let i = 0; i < pts.length - 1; i++) {
-        walls.push({ debut: pts[i], fin: pts[i + 1] });
+      // Auto-close: if snapped point matches any earlier wall start → closed loop
+      const allWalls = [...drawnWalls, { debut: lineStart, fin: snapped }];
+      let loopStartIdx = -1;
+      for (let i = 0; i < allWalls.length - 1; i++) {
+        if (dist(snapped, allWalls[i].debut) < 2) {
+          loopStartIdx = i;
+          break;
+        }
       }
-      addDrawnWalls(walls);
-      clearArcPoints();
+      if (loopStartIdx >= 0 && (allWalls.length - loopStartIdx) >= 3) {
+        const loopWalls = allWalls.slice(loopStartIdx);
+        useStore.setState({ drawnWalls: loopWalls });
+        setLineStart(null);
+        setDrawError(null);
+        setTimeout(() => useStore.getState().validerContour(), 0);
+      } else {
+        setLineStart(snapped);
+      }
     }
   };
 
@@ -284,20 +285,6 @@ export function CanvasDessin() {
       setInnerWallStart(snapped);
     } else {
       addInnerWall(snapped);
-    }
-  };
-
-  const handleArcToolInner = (cm: Point) => {
-    const snapped = snapToContour(cm);
-    if (arcPoints.length < 2) {
-      addArcPoint(snapped);
-    } else {
-      const pts = arcThroughThreePoints(arcPoints[0], arcPoints[1], snapped, 16);
-      for (let i = 0; i < pts.length - 1; i++) {
-        useStore.getState().setInnerWallStart(pts[i]);
-        useStore.getState().addInnerWall(pts[i + 1]);
-      }
-      clearArcPoints();
     }
   };
 
@@ -405,10 +392,8 @@ export function CanvasDessin() {
     e.evt.preventDefault();
     if (phase === 'contour_draw') {
       if (lineStart) setLineStart(null);
-      else if (arcPoints.length > 0) clearArcPoints();
     } else if (phase === 'murs_interieurs') {
       if (innerWallStart) setInnerWallStart(null);
-      else if (arcPoints.length > 0) clearArcPoints();
     }
   };
 
@@ -426,9 +411,9 @@ export function CanvasDessin() {
     const hStart = toSc({ x: 0, y: cm });
     const hEnd = toSc({ x: MAX_CM, y: cm });
     grid.push(<Line key={`v${cm}`} points={[vStart.x, vStart.y, vEnd.x, vEnd.y]}
-      stroke="rgba(0,160,120,0.15)" strokeWidth={0.3} />);
+      stroke="rgba(26,26,26,0.08)" strokeWidth={0.3} />);
     grid.push(<Line key={`h${cm}`} points={[hStart.x, hStart.y, hEnd.x, hEnd.y]}
-      stroke="rgba(0,160,120,0.15)" strokeWidth={0.3} />);
+      stroke="rgba(26,26,26,0.08)" strokeWidth={0.3} />);
   }
   // Medium level: every 50cm
   for (let cm = 0; cm <= MAX_CM; cm += 50) {
@@ -438,9 +423,9 @@ export function CanvasDessin() {
     const hStart = toSc({ x: 0, y: cm });
     const hEnd = toSc({ x: MAX_CM, y: cm });
     grid.push(<Line key={`v${cm}`} points={[vStart.x, vStart.y, vEnd.x, vEnd.y]}
-      stroke="rgba(0,160,120,0.3)" strokeWidth={0.5} />);
+      stroke="rgba(26,26,26,0.15)" strokeWidth={0.5} />);
     grid.push(<Line key={`h${cm}`} points={[hStart.x, hStart.y, hEnd.x, hEnd.y]}
-      stroke="rgba(0,160,120,0.3)" strokeWidth={0.5} />);
+      stroke="rgba(26,26,26,0.15)" strokeWidth={0.5} />);
   }
   // Thick level: every 1m (100cm)
   for (let cm = 0; cm <= MAX_CM; cm += 100) {
@@ -449,9 +434,9 @@ export function CanvasDessin() {
     const hStart = toSc({ x: 0, y: cm });
     const hEnd = toSc({ x: MAX_CM, y: cm });
     grid.push(<Line key={`v${cm}`} points={[vStart.x, vStart.y, vEnd.x, vEnd.y]}
-      stroke="rgba(0,160,120,0.5)" strokeWidth={0.8} />);
+      stroke="rgba(26,26,26,0.25)" strokeWidth={0.8} />);
     grid.push(<Line key={`h${cm}`} points={[hStart.x, hStart.y, hEnd.x, hEnd.y]}
-      stroke="rgba(0,160,120,0.5)" strokeWidth={0.8} />);
+      stroke="rgba(26,26,26,0.25)" strokeWidth={0.8} />);
   }
 
   // Labels (0..10 m)
@@ -459,8 +444,8 @@ export function CanvasDessin() {
   for (let m = 0; m <= 10; m++) {
     const px = toSc({ x: m * 100, y: 0 });
     const py = toSc({ x: 0, y: m * 100 });
-    labels.push(<Text key={`lx${m}`} x={px.x - 4} y={px.y - 16} text={`${m}`} fontSize={10} fill="rgba(0,130,100,0.5)" fontFamily="Inter" />);
-    if (m > 0) labels.push(<Text key={`ly${m}`} x={py.x - 18} y={py.y - 5} text={`${m}`} fontSize={10} fill="rgba(0,130,100,0.5)" fontFamily="Inter" />);
+    labels.push(<Text key={`lx${m}`} x={px.x - 4} y={px.y - 16} text={`${m}`} fontSize={10} fill="rgba(26,26,26,0.3)" fontFamily="Inter" />);
+    if (m > 0) labels.push(<Text key={`ly${m}`} x={py.x - 18} y={py.y - 5} text={`${m}`} fontSize={10} fill="rgba(26,26,26,0.3)" fontFamily="Inter" />);
   }
 
   const mousePx = mouse ? toSc(mouse) : null;
@@ -639,35 +624,6 @@ export function CanvasDessin() {
     );
   };
 
-  // ── Arc preview ──
-  const renderArcPreview = () => {
-    if (arcPoints.length === 0) return null;
-    const elements: React.JSX.Element[] = [];
-    arcPoints.forEach((p, i) => {
-      const px = toSc(p);
-      elements.push(
-        <Circle key={`ap${i}`} x={px.x} y={px.y} radius={6}
-          fill="#E76F51" stroke="rgba(231,111,81,0.3)" strokeWidth={2.5} />
-      );
-    });
-    if (mousePx && arcPoints.length > 0) {
-      const lastPx = toSc(arcPoints[arcPoints.length - 1]);
-      elements.push(
-        <Line key="arc-preview" points={[lastPx.x, lastPx.y, mousePx.x, mousePx.y]}
-          stroke="rgba(231,111,81,0.5)" strokeWidth={1.5} dash={[6, 3]} />
-      );
-    }
-    if (arcPoints.length === 2 && mouse) {
-      const pts = arcThroughThreePoints(arcPoints[0], arcPoints[1], mouse, 16);
-      const flatPts = pts.flatMap(p => { const px = toSc(p); return [px.x, px.y]; });
-      elements.push(
-        <Line key="arc-curve" points={flatPts}
-          stroke="rgba(231,111,81,0.6)" strokeWidth={2} dash={[4, 4]} />
-      );
-    }
-    return <>{elements}</>;
-  };
-
   // ── Freehand stroke preview ──
   const renderFreehandStroke = () => {
     if (freehandStroke.length < 2) return null;
@@ -719,6 +675,15 @@ export function CanvasDessin() {
     return <>{elements}</>;
   };
 
+  // ── Live surface computation from drawn walls ──
+  const liveSurface = phase === 'contour_draw' ? (() => {
+    // Include current mouse position as a virtual wall if line tool is active
+    const walls = mouse && lineStart
+      ? [...drawnWalls, { debut: lineStart, fin: mouse }]
+      : drawnWalls;
+    return wallsSurface(walls);
+  })() : null;
+
   // ── Instructions ──
   let instruction = '';
   if (phase === 'surface_input' || phase === 'mode_choice') {
@@ -728,8 +693,6 @@ export function CanvasDessin() {
       instruction = lineStart ? 'Cliquez la fin du mur (clic droit = annuler)' : 'Cliquez pour commencer un mur';
     } else if (activeTool === 'freehand') {
       instruction = 'Maintenez et dessinez — relacher pour convertir en murs';
-    } else if (activeTool === 'arc') {
-      instruction = `Arc : ${arcPoints.length}/3 points (clic droit = annuler)`;
     } else {
       instruction = 'Cliquez pres d\'un mur pour le supprimer';
     }
@@ -767,10 +730,10 @@ export function CanvasDessin() {
           <Rect x={0} y={0} width={sz.w} height={sz.h} fill="#FFFFFF" />
           {/* Grid area */}
           <Rect x={origin.x} y={origin.y} width={gridPx} height={gridPx}
-            fill="#f8fdf8" stroke="rgba(0,160,120,0.3)" strokeWidth={0.8} />
+            fill="#f9f9f8" stroke="rgba(26,26,26,0.15)" strokeWidth={0.8} />
           {grid}
           {labels}
-          <Text x={origin.x + gridPx + 6} y={origin.y - 16} text="m" fontSize={10} fill="rgba(0,130,100,0.5)" fontFamily="Inter" />
+          <Text x={origin.x + gridPx + 6} y={origin.y - 16} text="m" fontSize={10} fill="rgba(26,26,26,0.3)" fontFamily="Inter" />
 
           {/* Phase: surface_input / mode_choice */}
           {(phase === 'surface_input' || phase === 'mode_choice') && renderSurfacePreview()}
@@ -781,7 +744,6 @@ export function CanvasDessin() {
               {renderDrawnWalls(drawnWalls, '#1A1A1A', 'rgba(0,0,0,0.5)')}
               {renderWallPoints(drawnWalls, 'rgba(0,0,0,0.6)')}
               {activeTool === 'line' && renderLinePreview()}
-              {activeTool === 'arc' && renderArcPreview()}
               {activeTool === 'freehand' && renderFreehandStroke()}
               {renderCloseIndicator()}
             </>
@@ -796,7 +758,6 @@ export function CanvasDessin() {
               {renderClosedContour()}
               {renderDrawnWalls(innerWalls, '#E76F51', 'rgba(231,111,81,0.7)')}
               {activeTool === 'line' && renderInnerWallPreview()}
-              {activeTool === 'arc' && renderArcPreview()}
               {activeTool === 'freehand' && renderFreehandStroke()}
             </>
           )}
@@ -811,6 +772,63 @@ export function CanvasDessin() {
           <Text x={16} y={sz.h - 32} text={instruction} fontSize={12} fill="rgba(0,0,0,0.35)" fontFamily="Inter" />
         </Layer>
       </Stage>
+
+      {/* Live surface indicator */}
+      {phase === 'contour_draw' && liveSurface !== null && liveSurface > 0 && (
+        <div style={{
+          position: 'absolute',
+          top: 16,
+          right: 16,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'flex-end',
+          gap: 4,
+          background: 'rgba(255,255,255,0.9)',
+          borderRadius: 12,
+          border: `1.5px solid ${Math.abs(liveSurface - targetSurfaceM2) <= targetSurfaceM2 * 0.1 ? 'rgba(34,197,94,0.5)' : liveSurface > targetSurfaceM2 ? 'rgba(239,68,68,0.5)' : 'rgba(59,130,246,0.5)'}`,
+          padding: '10px 14px',
+          zIndex: 5,
+          userSelect: 'none',
+          backdropFilter: 'blur(8px)',
+          minWidth: 120,
+        }}>
+          <div style={{
+            fontSize: 11,
+            fontWeight: 600,
+            color: 'rgba(0,0,0,0.4)',
+            fontFamily: 'Inter',
+            letterSpacing: '0.04em',
+          }}>SURFACE</div>
+          <div style={{
+            fontSize: 22,
+            fontWeight: 700,
+            fontFamily: 'Inter',
+            color: Math.abs(liveSurface - targetSurfaceM2) <= targetSurfaceM2 * 0.1 ? '#22c55e' : liveSurface > targetSurfaceM2 ? '#ef4444' : '#1A1A1A',
+          }}>{liveSurface} m²</div>
+          <div style={{
+            fontSize: 11,
+            fontFamily: 'Inter',
+            color: 'rgba(0,0,0,0.35)',
+          }}>cible : {targetSurfaceM2} m²</div>
+          {/* Progress bar */}
+          <div style={{
+            width: '100%',
+            height: 4,
+            borderRadius: 2,
+            background: 'rgba(0,0,0,0.06)',
+            marginTop: 4,
+            overflow: 'hidden',
+          }}>
+            <div style={{
+              width: `${Math.min(100, (liveSurface / targetSurfaceM2) * 100)}%`,
+              height: '100%',
+              borderRadius: 2,
+              background: Math.abs(liveSurface - targetSurfaceM2) <= targetSurfaceM2 * 0.1 ? '#22c55e' : liveSurface > targetSurfaceM2 ? '#ef4444' : '#3b82f6',
+              transition: 'width 0.2s, background 0.2s',
+            }} />
+          </div>
+        </div>
+      )}
 
       {/* Zoom controls — light capsule */}
       <div style={{

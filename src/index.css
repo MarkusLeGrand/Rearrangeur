@@ -888,7 +888,7 @@ button.pill-panel-media--cta:disabled {
   display: flex;
   flex-direction: column;
   background: var(--h-noir);
-  padding-top: 82px;
+  padding-top: 96px; /* top(20) + pill(56) + bottom(20) */
 }
 
 .app-main {
@@ -901,10 +901,10 @@ button.pill-panel-media--cta:disabled {
 /* ── Sidebar — floating capsule (matches pill header) ── */
 .sidebar {
   position: absolute;
-  left: 16px;
-  top: 16px;
+  left: 15px;
+  top: 15px;
+  bottom: 15px;
   width: 260px;
-  max-height: calc(100% - 32px);
   z-index: 10;
   background: #FFFFFF;
   border-radius: 20px;

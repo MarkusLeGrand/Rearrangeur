@@ -16,8 +16,6 @@ export function Toolbar({ stageRef, onBackToLanding }: Props) {
   const generer = useStore((s) => s.generer);
   const isGenerated = useStore((s) => s.isGenerated);
   const nonPlaces = useStore((s) => s.nonPlaces);
-  const echelle = useStore((s) => s.echelle);
-  const setEchelle = useStore((s) => s.setEchelle);
   const resetTout = useStore((s) => s.resetTout);
   const sauvegarder = useStore((s) => s.sauvegarder);
   const charger = useStore((s) => s.charger);
@@ -106,19 +104,6 @@ export function Toolbar({ stageRef, onBackToLanding }: Props) {
               {nonPlaces.length} non plac&eacute;{nonPlaces.length > 1 ? 's' : ''}
             </span>
           )}
-        </div>
-
-        {/* Zoom — right side */}
-        <div className="pill-zoom">
-          <input
-            type="range"
-            min="0.5"
-            max="3"
-            step="0.1"
-            value={echelle}
-            onChange={(e) => setEchelle(parseFloat(e.target.value))}
-            className="pill-zoom-slider"
-          />
         </div>
 
         {/* Burger / Close */}

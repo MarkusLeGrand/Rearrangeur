@@ -288,6 +288,73 @@ export function arcThroughThreePoints(p1: Point, p2: Point, p3: Point, numSegmen
   return pts;
 }
 
+/** Extract ordered polygon points from unordered wall segments (graph walk).
+ *  Returns null if segments don't form a valid simple closed polygon. */
+export function wallsToPolygon(walls: { debut: Point; fin: Point }[]): Point[] | null {
+  if (walls.length < 3) return null;
+  const SNAP = 2;
+  const uniquePts: Point[] = [];
+  const findOrAdd = (p: Point): number => {
+    for (let i = 0; i < uniquePts.length; i++) {
+      if (Math.abs(uniquePts[i].x - p.x) <= SNAP && Math.abs(uniquePts[i].y - p.y) <= SNAP) return i;
+    }
+    uniquePts.push({ x: p.x, y: p.y });
+    return uniquePts.length - 1;
+  };
+
+  const adj = new Map<number, Set<number>>();
+  for (const w of walls) {
+    const a = findOrAdd(w.debut);
+    const b = findOrAdd(w.fin);
+    if (a === b) continue;
+    if (!adj.has(a)) adj.set(a, new Set());
+    if (!adj.has(b)) adj.set(b, new Set());
+    adj.get(a)!.add(b);
+    adj.get(b)!.add(a);
+  }
+
+  // All vertices must have degree 2
+  for (const [, neighbors] of adj.entries()) {
+    if (neighbors.size !== 2) return null;
+  }
+  if (uniquePts.length < 3) return null;
+
+  // Walk
+  const path: number[] = [];
+  let current = 0;
+  let prev = -1;
+  for (let step = 0; step < uniquePts.length; step++) {
+    path.push(current);
+    const neighbors = adj.get(current);
+    if (!neighbors) break;
+    const next = [...neighbors].find(n => n !== prev);
+    if (next === undefined) break;
+    prev = current;
+    current = next;
+  }
+
+  if (path.length < 3) return null;
+  return path.map(i => uniquePts[i]);
+}
+
+/** Compute approximate surface (m²) from unordered wall segments.
+ *  Falls back to naive ordered computation if graph walk fails. */
+export function wallsSurface(walls: { debut: Point; fin: Point }[]): number | null {
+  if (walls.length < 2) return null;
+  // Try graph-based ordered polygon
+  const poly = wallsToPolygon(walls);
+  if (poly && poly.length >= 3) {
+    const a = aire(poly);
+    if (a > 0) return Math.round(a / 10000 * 10) / 10;
+  }
+  // Fallback: naive order (debut of each wall + last fin)
+  const pts = walls.map(w => w.debut);
+  pts.push(walls[walls.length - 1].fin);
+  if (pts.length < 3) return null;
+  const a = aire(pts);
+  return a > 0 ? Math.round(a / 10000 * 10) / 10 : null;
+}
+
 /** Distance from point p to segment [a, b] */
 export function distPointSegment(p: Point, a: Point, b: Point): number {
   const dx = b.x - a.x, dy = b.y - a.y;

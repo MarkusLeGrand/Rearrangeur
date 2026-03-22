@@ -89,11 +89,13 @@ export function CanvasAmenagement() {
     return () => ro.disconnect();
   }, []);
 
-  // ── Coordinate system (grid centered, piece centered within grid) ──
+  // ── Coordinate system (grid centered in free area right of sidebar) ──
   const PAD = 40;
-  const baseScale = Math.min((sz.w - PAD * 2) / MAX_CM, (sz.h - PAD * 2) / MAX_CM);
+  const SIDEBAR_W = 290;
+  const freeW = sz.w - SIDEBAR_W;
+  const baseScale = Math.min((freeW - PAD * 2) / MAX_CM, (sz.h - PAD * 2) / MAX_CM);
   const scale = baseScale * echelle;
-  const cx = (sz.w - MAX_CM * scale) / 2;
+  const cx = SIDEBAR_W + (freeW - MAX_CM * scale) / 2;
   const cy = (sz.h - MAX_CM * scale) / 2;
 
   const toSc = (x: number, y: number) => ({
@@ -386,7 +388,7 @@ export function renderFurnitureSymbol(
     <>
       <Rect x={-w / 2} y={-h / 2} width={w} height={h}
         fill={color} stroke={strokeColor} strokeWidth={strokeW} dash={dash} cornerRadius={3} />
-      {nom && (
+      {nom && w > 30 && h > 20 && (
         <Text x={-w / 2} y={-fs / 2} width={w} text={nom}
           align="center" fontSize={fs} fontFamily="Inter" fontStyle="500"
           fill="rgba(0,0,0,0.45)" listening={false} />
