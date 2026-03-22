@@ -2,7 +2,7 @@ import React, { useRef, useState, useEffect } from 'react';
 import { Stage, Layer, Line, Rect, Text, Arc, Group, Circle } from 'react-konva';
 import { useStore } from '../store';
 import type { ElementMur, MeublePlacement, WallLine } from '../types';
-import { pointSurSegment, angleSegment, projeterSur } from '../utils/geometry';
+import { pointSurSegment, angleSegment, projeterSur, snap } from '../utils/geometry';
 
 const MAX_CM = 1000;
 const FLOOR = '#FFFFFF';

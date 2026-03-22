@@ -93,13 +93,11 @@ function SidebarDessin() {
   const setDrawMethod = useStore((s) => s.setDrawMethod);
   const drawnWalls = useStore((s) => s.drawnWalls);
   const innerWalls = useStore((s) => s.innerWalls);
-  const clearDrawnWalls = useStore((s) => s.clearDrawnWalls);
   const validerContour = useStore((s) => s.validerContour);
   const closeContourFromTemplate = useStore((s) => s.closeContourFromTemplate);
   const templateShape = useStore((s) => s.templateShape);
   const setTemplateShape = useStore((s) => s.setTemplateShape);
   const templateParams = useStore((s) => s.templateParams);
-  const setInnerWallStart = useStore((s) => s.setInnerWallStart);
   const validerPiece = useStore((s) => s.validerPiece);
   const drawError = useStore((s) => s.drawError);
   const setDrawError = useStore((s) => s.setDrawError);

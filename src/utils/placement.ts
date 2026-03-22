@@ -1,6 +1,6 @@
 import type { MeubleCatalogue, MeublePlacement, Piece, ElementMur, Point } from '../types';
 import {
-  polyBounds, pointDansPolygone, rotatedRectCorners, rotatedRectInPoly,
+  polyBounds, rotatedRectCorners, rotatedRectInPoly,
   segCroiseRotatedRect, rotatedRectsOverlap, distPointSegment,
 } from './geometry';
 
@@ -259,12 +259,6 @@ function inferZones(meubles: MeubleCatalogue[]): FunctionalZone[] {
   return zones;
 }
 
-function getZoneForItem(id: string, zones: FunctionalZone[]): FunctionalZone | null {
-  for (const z of zones) {
-    if (z.furnitureIds.includes(id)) return z;
-  }
-  return null;
-}
 
 // ═══════════════════════════════════════════════════════════════
 // Position validation
@@ -631,7 +625,7 @@ function placeFreeSpace(
 function generateOneLayout(
   meubles: MeubleCatalogue[],
   piece: Piece, fixes: MeublePlacement[],
-  elementsMur: ElementMur[],
+  _elementsMur: ElementMur[],
   walls: WallInfo[], exclusionZones: Point[][],
   scoreCtx: ScoreCtx,
 ): Array<{ meuble: MeubleCatalogue; pos: { cx: number; cy: number; angleDeg: number } }> {

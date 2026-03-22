@@ -55,7 +55,6 @@ export function CanvasDessin() {
   const addInnerWall = useStore((s) => s.addInnerWall);
 
   // Validation
-  const validerContour = useStore((s) => s.validerContour);
   const setDrawError = useStore((s) => s.setDrawError);
 
   // Zoom
