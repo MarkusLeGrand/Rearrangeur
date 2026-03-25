@@ -45,11 +45,10 @@ export function CanvasResultat({ stageRef }: Props) {
   }, []);
 
   const PAD = 40;
-  const SIDEBAR_W = 290;
-  const freeW = sz.w - SIDEBAR_W;
+  const freeW = sz.w;
   const baseScale = Math.min((freeW - PAD * 2) / MAX_CM, (sz.h - PAD * 2) / MAX_CM);
   const scale = baseScale * echelle;
-  const cx = SIDEBAR_W + (freeW - MAX_CM * scale) / 2;
+  const cx = (freeW - MAX_CM * scale) / 2;
   const cy = (sz.h - MAX_CM * scale) / 2;
 
   const toSc = (x: number, y: number) => ({
@@ -73,7 +72,7 @@ export function CanvasResultat({ stageRef }: Props) {
     const newEchelle = Math.max(0.3, Math.min(5, echelle * (direction > 0 ? factor : 1 / factor)));
     const oldScale = baseScale * echelle;
     const newScale = baseScale * newEchelle;
-    const newCx = (sz.w - MAX_CM * newScale) / 2;
+    const newCx = (freeW - MAX_CM * newScale) / 2;
     const newCy = (sz.h - MAX_CM * newScale) / 2;
     const mouseXcm = (pointer.x - cx - stagePos.x) / oldScale;
     const mouseYcm = (pointer.y - cy - stagePos.y) / oldScale;
@@ -110,11 +109,13 @@ export function CanvasResultat({ stageRef }: Props) {
         onWheel={handleWheel}
         style={{ cursor: isPanning ? 'grabbing' : 'default' }}>
         <Layer>
-          <Rect x={0} y={0} width={sz.w} height={sz.h} fill="#FFFFFF" />
+          <Rect x={0} y={0} width={sz.w} height={sz.h} fill="#FFFFFF"
+            onClick={() => setSelectedPlacement(null)} onTap={() => setSelectedPlacement(null)} />
 
           {/* Floor */}
           <Line points={piece.contour.flatMap((p) => { const s = toSc(p.x, p.y); return [s.sx, s.sy]; })}
-            closed fill={FLOOR} stroke="transparent" />
+            closed fill={FLOOR} stroke="transparent"
+            onClick={() => setSelectedPlacement(null)} onTap={() => setSelectedPlacement(null)} />
 
           {/* Walls */}
           {murs.map((w, i) => {
@@ -282,15 +283,49 @@ function DraggableFurniture({ m, toSc, toCm, scale, fixe, selected, onSelect, on
   onResize: (largeur: number, hauteur: number) => void;
 }) {
   const [liveDims, setLiveDims] = useState<{ l: number; h: number } | null>(null);
+  const [isRotating, setIsRotating] = useState(false);
+  const rotBaseRef = useRef<number>(0);
+  const centerScreenRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const curL = liveDims ? liveDims.l : m.largeur;
   const curH = liveDims ? liveDims.h : m.hauteur;
   const w = curL * scale;
   const h = curH * scale;
   const center = toSc(m.x + m.largeur / 2, m.y + m.hauteur / 2);
 
+  // Rotation via pointer events on window (not Konva drag) to avoid feedback loop
+  useEffect(() => {
+    if (!isRotating) return;
+    const onMove = (e: PointerEvent) => {
+      const dx = e.clientX - centerScreenRef.current.x;
+      const dy = e.clientY - centerScreenRef.current.y;
+      const rawAngle = Math.atan2(dy, dx) * 180 / Math.PI - rotBaseRef.current;
+      const snapped = Math.round(rawAngle / 5) * 5;
+      onSetRotation(((snapped % 360) + 360) % 360);
+    };
+    const onUp = () => setIsRotating(false);
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+  }, [isRotating, onSetRotation]);
+
+  const startRotation = (e: any) => {
+    e.cancelBubble = true;
+    const stage = e.target.getStage();
+    if (!stage) return;
+    const container = stage.container().getBoundingClientRect();
+    centerScreenRef.current = { x: container.left + center.sx, y: container.top + center.sy };
+    const dx = e.evt.clientX - centerScreenRef.current.x;
+    const dy = e.evt.clientY - centerScreenRef.current.y;
+    rotBaseRef.current = Math.atan2(dy, dx) * 180 / Math.PI - m.rotation;
+    setIsRotating(true);
+  };
+
   return (
     <Group x={center.sx} y={center.sy} rotation={m.rotation}
-      draggable
+      draggable={selected && !isRotating}
       onClick={(e) => { e.cancelBubble = true; onSelect?.(); }}
       onTap={(e) => { e.cancelBubble = true; onSelect?.(); }}
       onContextMenu={(e) => { e.evt.preventDefault(); e.cancelBubble = true; onDelete(); }}
@@ -301,11 +336,6 @@ function DraggableFurniture({ m, toSc, toCm, scale, fixe, selected, onSelect, on
         const snapped = toSc(nx + m.largeur / 2, ny + m.hauteur / 2);
         e.target.x(snapped.sx); e.target.y(snapped.sy);
         onDragEnd(nx, ny);
-      }}
-      onWheel={(e) => {
-        e.evt.preventDefault(); e.cancelBubble = true;
-        const delta = e.evt.deltaY > 0 ? 5 : -5;
-        onSetRotation(((m.rotation + delta) % 360 + 360) % 360);
       }}>
       {selected && (
         <Rect x={-w / 2 - 3} y={-h / 2 - 3} width={w + 6} height={h + 6}
@@ -313,29 +343,52 @@ function DraggableFurniture({ m, toSc, toCm, scale, fixe, selected, onSelect, on
           fill="transparent" cornerRadius={3} />
       )}
       {renderFurnitureSymbol(m.catalogueId, w, h, m.nom, fixe)}
-      <Circle x={w / 2} y={h / 2} radius={5}
-        fill="rgba(0,0,0,0.08)" stroke="rgba(0,0,0,0.15)" strokeWidth={1}
-        draggable
-        onMouseEnter={(e) => { e.target.getStage()!.container().style.cursor = 'nwse-resize'; }}
-        onMouseLeave={(e) => { e.target.getStage()!.container().style.cursor = 'default'; }}
-        onDragMove={(e) => {
-          e.cancelBubble = true;
-          const minPx = 20 * scale;
-          const nx = Math.max(-w / 2 + minPx, e.target.x());
-          const ny = Math.max(-h / 2 + minPx, e.target.y());
-          e.target.x(nx); e.target.y(ny);
-          const newL = snap(Math.max(20, (nx + w / 2) / scale), 5);
-          const newH = snap(Math.max(20, (ny + h / 2) / scale), 5);
-          setLiveDims({ l: newL, h: newH });
-        }}
-        onDragEnd={(e) => {
-          e.cancelBubble = true;
-          const newL = liveDims ? liveDims.l : m.largeur;
-          const newH = liveDims ? liveDims.h : m.hauteur;
-          setLiveDims(null);
-          e.target.x(newL * scale / 2); e.target.y(newH * scale / 2);
-          onResize(newL, newH);
-        }} />
+      {/* Delete handle (top-right) — only when selected */}
+      {selected && (
+        <Group x={w / 2} y={-h / 2}
+          onClick={(e) => { e.cancelBubble = true; onDelete(); }}
+          onTap={(e) => { e.cancelBubble = true; onDelete(); }}
+          onMouseEnter={(e) => { e.target.getStage()!.container().style.cursor = 'pointer'; }}
+          onMouseLeave={(e) => { e.target.getStage()!.container().style.cursor = 'default'; }}>
+          <Circle radius={8} fill="#DC2626" stroke="#fff" strokeWidth={1.5} />
+          <Text x={-4} y={-5.5} text="x" fontSize={10} fontStyle="700" fill="#fff" fontFamily="Inter" listening={false} />
+        </Group>
+      )}
+      {/* Rotation handle (top-left) — only when selected */}
+      {selected && (
+        <Circle x={-w / 2} y={-h / 2} radius={7}
+          fill="#E76F51" stroke="#fff" strokeWidth={1.5}
+          onMouseEnter={(e) => { e.target.getStage()!.container().style.cursor = 'grab'; }}
+          onMouseLeave={(e) => { if (!isRotating) e.target.getStage()!.container().style.cursor = 'default'; }}
+          onMouseDown={startRotation}
+          onTouchStart={startRotation} />
+      )}
+      {/* Resize handle (bottom-right) — only when selected */}
+      {selected && (
+        <Circle x={w / 2} y={h / 2} radius={6}
+          fill="#264653" stroke="#fff" strokeWidth={1.5}
+          draggable
+          onMouseEnter={(e) => { e.target.getStage()!.container().style.cursor = 'nwse-resize'; }}
+          onMouseLeave={(e) => { e.target.getStage()!.container().style.cursor = 'default'; }}
+          onDragMove={(e) => {
+            e.cancelBubble = true;
+            const minPx = 20 * scale;
+            const nx = Math.max(-w / 2 + minPx, e.target.x());
+            const ny = Math.max(-h / 2 + minPx, e.target.y());
+            e.target.x(nx); e.target.y(ny);
+            const newL = snap(Math.max(20, (nx + w / 2) / scale), 5);
+            const newH = snap(Math.max(20, (ny + h / 2) / scale), 5);
+            setLiveDims({ l: newL, h: newH });
+          }}
+          onDragEnd={(e) => {
+            e.cancelBubble = true;
+            const newL = liveDims ? liveDims.l : m.largeur;
+            const newH = liveDims ? liveDims.h : m.hauteur;
+            setLiveDims(null);
+            e.target.x(newL * scale / 2); e.target.y(newH * scale / 2);
+            onResize(newL, newH);
+          }} />
+      )}
     </Group>
   );
 }

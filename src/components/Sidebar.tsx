@@ -16,8 +16,7 @@ export function Sidebar() {
    Shared step layout — every step looks the same
    ═══════════════════════════════════════════ */
 
-function StepShell({ title, stepLabel, stepIdx, totalSteps, children }: {
-  title: string;
+function StepShell({ stepLabel, stepIdx, totalSteps, children }: {
   stepLabel: string;
   stepIdx: number;
   totalSteps: number;
@@ -25,26 +24,18 @@ function StepShell({ title, stepLabel, stepIdx, totalSteps, children }: {
 }) {
   return (
     <div className="sidebar">
-      <div className="sidebar-header">
-        <div className="sidebar-title">{title}</div>
-      </div>
-      <div className="draw-progress">
-        {Array.from({ length: totalSteps }, (_, i) => (
-          <div key={i} className="draw-progress-step" style={{ display: 'flex', alignItems: 'center' }}>
-            <div className={`draw-progress-dot${i === stepIdx ? ' active' : i < stepIdx ? ' done' : ''}`} />
-            {i < totalSteps - 1 && <div className={`draw-progress-line${i < stepIdx ? ' done' : ''}`} />}
-          </div>
-        ))}
+      <div className="sidebar-header" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', paddingBottom: 10 }}>
+        <div className="sidebar-title" style={{ textAlign: 'center', width: '100%' }}>{stepLabel}</div>
+        <div className="draw-progress" style={{ margin: 0, marginTop: 8, justifyContent: 'center', padding: 0 }}>
+          {Array.from({ length: totalSteps }, (_, i) => (
+            <div key={i} className="draw-progress-step" style={{ display: 'flex', alignItems: 'center' }}>
+              <div className={`draw-progress-dot${i === stepIdx ? ' active' : i < stepIdx ? ' done' : ''}`} />
+              {i < totalSteps - 1 && <div className={`draw-progress-line${i < stepIdx ? ' done' : ''}`} />}
+            </div>
+          ))}
+        </div>
       </div>
       <div className="sidebar-body">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-          <span style={{ fontSize: 11, fontWeight: 700, color: 'rgba(0,0,0,0.2)', fontFamily: 'Inter', letterSpacing: '0.06em' }}>
-            {stepIdx + 1}/{totalSteps}
-          </span>
-          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--h-noir)', fontFamily: 'Inter' }}>
-            {stepLabel}
-          </span>
-        </div>
         {children}
       </div>
     </div>
@@ -116,7 +107,7 @@ function SidebarDessin() {
   const liveSurface = wallsSurface(drawnWalls);
 
   return (
-    <StepShell title="Dessiner la piece" stepLabel={dessinLabels[phase] ?? ''} stepIdx={dessinIdx[phase] ?? 0} totalSteps={DESSIN_STEPS}>
+    <StepShell stepLabel={dessinLabels[phase] ?? ''} stepIdx={dessinIdx[phase] ?? 0} totalSteps={DESSIN_STEPS}>
 
       {/* ── 1. Surface ── */}
       {phase === 'surface_input' && (
@@ -239,7 +230,7 @@ function SidebarDessin() {
             </div>
           )}
           <button onClick={validerPiece} className="sidebar-btn sidebar-btn--primary">
-            Continuer
+            Valider la piece
           </button>
           <button onClick={() => {
             useStore.setState({ contourPoints: [], contourClosed: false, innerWalls: [], innerWallStart: null });
@@ -255,27 +246,29 @@ function SidebarDessin() {
 }
 
 /* ═══════════════════════════════════════════
-   AMÉNAGEMENT — 3 étapes
+   AMÉNAGEMENT — 4 étapes
    ═══════════════════════════════════════════ */
 
 const AMENAGEMENT_STEPS = 3;
 const amenagementLabels = ['Ouvertures', 'Elements fixes', 'Meubles'];
 
 function SidebarAmenagement() {
-  const [step, setStep] = useState(0);
+  const step = useStore((s) => s.amenagementStep);
+  const setStep = useStore((s) => s.setAmenagementStep);
   const setMode = useStore((s) => s.setMode);
   const setDrawPhase = useStore((s) => s.setDrawPhase);
   const generer = useStore((s) => s.generer);
-  const selectedIds = useStore((s) => s.selectedIds);
+  const selectedQty = useStore((s) => s.selectedQty);
+  const totalMeubles = Object.values(selectedQty).reduce((s, n) => s + n, 0);
 
-  const next = () => setStep(s => Math.min(AMENAGEMENT_STEPS - 1, s + 1));
+  const next = () => setStep(Math.min(AMENAGEMENT_STEPS - 1, step + 1));
   const prev = () => {
-    if (step > 0) setStep(s => s - 1);
+    if (step > 0) setStep(step - 1);
     else { setMode('dessin'); setDrawPhase('murs_interieurs'); }
   };
 
   return (
-    <StepShell title="Amenager la piece" stepLabel={amenagementLabels[step]} stepIdx={step} totalSteps={AMENAGEMENT_STEPS}>
+    <StepShell stepLabel={amenagementLabels[step]} stepIdx={step} totalSteps={AMENAGEMENT_STEPS}>
 
       {/* ── 1. Ouvertures ── */}
       {step === 0 && (
@@ -299,7 +292,7 @@ function SidebarAmenagement() {
       {step === 2 && (
         <>
           <StepMeubles />
-          <button onClick={generer} disabled={selectedIds.size === 0} className="sidebar-btn sidebar-btn--primary">
+          <button onClick={generer} disabled={totalMeubles === 0} className="sidebar-btn sidebar-btn--primary">
             Generer le plan
           </button>
           <button onClick={prev} className="sidebar-btn sidebar-btn--ghost">Retour</button>
@@ -311,19 +304,7 @@ function SidebarAmenagement() {
 }
 
 function StepOuvertures() {
-  const elementsMur = useStore((s) => s.elementsMur);
-  const supprimerElementMur = useStore((s) => s.supprimerElementMur);
-  const inverserSensElement = useStore((s) => s.inverserSensElement);
   const setPlacingTool = useStore((s) => s.setPlacingTool);
-
-  const fenetreLabel = (variant?: string) => {
-    switch (variant) {
-      case 'petite': return 'Petite fen.';
-      case 'porte_fenetre': return 'Porte-fen.';
-      case 'baie_vitree': return 'Baie vitree';
-      default: return 'Fenetre std';
-    }
-  };
 
   return (
     <>
@@ -348,73 +329,222 @@ function StepOuvertures() {
         <button onClick={() => setPlacingTool({ type: 'fenetre', variant: 'baie_vitree' })}
           className="sidebar-action-btn sidebar-action-btn--fenetre">Baie 220cm</button>
       </div>
-
-      {elementsMur.length > 0 && (
-        <div className="sidebar-placed">
-          <div className="sidebar-placed-label">Places</div>
-          {elementsMur.map((el) => (
-            <div key={el.id} className="sidebar-placed-item">
-              <span>{el.type === 'porte' ? 'Porte' : fenetreLabel(el.fenetreVariant)} ({el.largeur} cm)</span>
-              <div style={{ display: 'flex', gap: 4 }}>
-                <button onClick={() => inverserSensElement(el.id)} className="sidebar-item-action" title="Inverser">&lt;-&gt;</button>
-                <button onClick={() => supprimerElementMur(el.id)} className="sidebar-item-action" title="Supprimer">x</button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
     </>
   );
 }
 
 function StepFixes() {
-  const fixes = useStore((s) => s.fixes);
-  const supprimerFixe = useStore((s) => s.supprimerFixe);
   const [catActive, setCatActive] = useState(fixedCategories[0]);
   const filtered = fixedCatalogue.filter((m) => m.categorie === catActive);
+  const piece = useStore((s) => s.piece);
+  const ajouterFixe = useStore((s) => s.ajouterFixe);
+  const fixes = useStore((s) => s.fixes);
+  const setSelectedFixe = useStore((s) => s.setSelectedFixe);
 
-  const handleDragStart = (e: React.DragEvent, item: MeubleCatalogue) => {
-    e.dataTransfer.setData('fixe', JSON.stringify(item));
-    e.dataTransfer.effectAllowed = 'copy';
+  const handleAdd = (item: MeubleCatalogue) => {
+    if (!piece) return;
+    // Place at center of room
+    const cx = piece.contour.reduce((s, p) => s + p.x, 0) / piece.contour.length;
+    const cy = piece.contour.reduce((s, p) => s + p.y, 0) / piece.contour.length;
+    ajouterFixe({
+      catalogueId: item.id, nom: item.nom,
+      largeur: item.largeur, hauteur: item.hauteur, couleur: item.couleur,
+      x: cx - item.largeur / 2, y: cy - item.hauteur / 2,
+      rotation: 0, fixe: true,
+    });
+    setSelectedFixe(fixes.length);
   };
 
   return (
     <>
-      <p className="sidebar-desc">Glissez les elements fixes sur le plan.</p>
+      <p className="sidebar-desc">Cliquez pour ajouter, puis deplacez sur le plan.</p>
       <div className="sidebar-cats">
         {fixedCategories.map((cat) => (
           <button key={cat} onClick={() => setCatActive(cat)}
             className={`sidebar-cat${catActive === cat ? ' active' : ''}`}>{cat}</button>
         ))}
       </div>
-      {filtered.map((item) => (
-        <div key={item.id} draggable onDragStart={(e) => handleDragStart(e, item)}
-          className="sidebar-item sidebar-item--drag">
-          <div className="sidebar-swatch" style={{ backgroundColor: item.couleur }} />
-          <div style={{ minWidth: 0 }}>
-            <div className="sidebar-item-name">{item.nom}</div>
-            <div className="sidebar-item-dim">{(item.largeur / 100).toFixed(1)} x {(item.hauteur / 100).toFixed(1)} m</div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+        {filtered.map((item) => {
+          const count = fixes.filter(f => f.catalogueId === item.id).length;
+          return (
+          <div key={item.id} onClick={() => handleAdd(item)}
+            style={{
+              padding: '4px 8px', borderRadius: 6, cursor: 'pointer',
+              background: count > 0 ? 'rgba(231,111,81,0.1)' : 'rgba(0,0,0,0.03)',
+              border: count > 0 ? '1px solid rgba(231,111,81,0.3)' : '1px solid rgba(0,0,0,0.06)',
+              fontSize: 10, fontFamily: 'Inter', fontWeight: 500,
+              color: count > 0 ? '#E76F51' : '#444',
+              display: 'flex', alignItems: 'center', gap: 4,
+              transition: 'all 0.1s',
+            }}>
+            <div style={{ width: 8, height: 8, borderRadius: 2, background: item.couleur, flexShrink: 0 }} />
+            {item.nom}
+            {count > 1 && <span style={{ fontWeight: 700 }}>x{count}</span>}
           </div>
-        </div>
-      ))}
-      {fixes.length > 0 && (
-        <div className="sidebar-placed">
-          <div className="sidebar-placed-label">Sur le plan</div>
-          {fixes.map((m, i) => (
-            <div key={i} className="sidebar-placed-item">
-              <span>{m.nom}</span>
-              <button onClick={() => supprimerFixe(i)} className="sidebar-item-action">Retirer</button>
-            </div>
-          ))}
-        </div>
-      )}
+          );
+        })}
+      </div>
     </>
   );
 }
 
+/** Right panel — inventory of everything on the plan */
+export function InventoryPanel() {
+  const mode = useStore((s) => s.mode);
+  const elementsMur = useStore((s) => s.elementsMur);
+  const supprimerElementMur = useStore((s) => s.supprimerElementMur);
+  const inverserSensElement = useStore((s) => s.inverserSensElement);
+  const fixes = useStore((s) => s.fixes);
+  const supprimerFixe = useStore((s) => s.supprimerFixe);
+  const selectedFixe = useStore((s) => s.selectedFixe);
+  const setSelectedFixe = useStore((s) => s.setSelectedFixe);
+  const selectedQty = useStore((s) => s.selectedQty);
+  const setMeubleQty = useStore((s) => s.setMeubleQty);
+  const placements = useStore((s) => s.placements);
+  const supprimerPlacement = useStore((s) => s.supprimerPlacement);
+  const selectedPlacement = useStore((s) => s.selectedPlacement);
+  const setSelectedPlacement = useStore((s) => s.setSelectedPlacement);
+
+  const setMode = useStore((s) => s.setMode);
+  const amenagementStep = useStore((s) => s.amenagementStep);
+  const setAmenagementStep = useStore((s) => s.setAmenagementStep);
+
+  const meubleEntries = Object.entries(selectedQty);
+  const totalMeubles = meubleEntries.reduce((s, [, n]) => s + n, 0);
+  const totalItems = elementsMur.length + fixes.length + totalMeubles + (mode === 'resultat' ? placements.length : 0);
+  if (totalItems === 0) return null;
+
+  const fenetreLabel = (variant?: string) => {
+    switch (variant) {
+      case 'petite': return 'Petite fen.';
+      case 'porte_fenetre': return 'Porte-fen.';
+      case 'baie_vitree': return 'Baie vitree';
+      default: return 'Fenetre std';
+    }
+  };
+
+  return (
+    <div className="sidebar sidebar--right">
+      <div className="sidebar-header" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', paddingBottom: 10 }}>
+        <div className="sidebar-title" style={{ textAlign: 'center', width: '100%' }}>Inventaire</div>
+      </div>
+      <div className="sidebar-body">
+
+        {/* Ouvertures */}
+        {elementsMur.length > 0 && (
+          <div className="sidebar-placed">
+            <div className="sidebar-placed-label"
+              style={{ cursor: 'pointer', color: mode === 'amenagement' && amenagementStep === 0 ? '#E76F51' : undefined }}
+              onClick={() => { setMode('amenagement'); setAmenagementStep(0); }}>
+              Ouvertures ({elementsMur.length})
+            </div>
+            {elementsMur.map((el) => (
+              <div key={el.id} className="sidebar-placed-item">
+                <span>{el.type === 'porte' ? 'Porte' : fenetreLabel(el.fenetreVariant)} ({el.largeur}cm)</span>
+                <div style={{ display: 'flex', gap: 3 }}>
+                  <button onClick={() => inverserSensElement(el.id)} className="sidebar-item-action" title="Inverser sens">&lt;-&gt;</button>
+                  <button onClick={() => supprimerElementMur(el.id)} className="sidebar-item-action" title="Supprimer">x</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Elements fixes */}
+        {fixes.length > 0 && (
+          <div className="sidebar-placed">
+            <div className="sidebar-placed-label"
+              style={{ cursor: 'pointer', color: mode === 'amenagement' && amenagementStep === 1 ? '#E76F51' : undefined }}
+              onClick={() => { setMode('amenagement'); setAmenagementStep(1); }}>
+              Elements fixes ({fixes.length})
+            </div>
+            {fixes.map((m, i) => (
+              <div key={`f${i}`} className="sidebar-placed-item"
+                style={{
+                  cursor: 'pointer',
+                  background: selectedFixe === i ? 'rgba(231,111,81,0.12)' : undefined,
+                  border: selectedFixe === i ? '1px solid rgba(231,111,81,0.3)' : '1px solid transparent',
+                  borderRadius: 6,
+                }}
+                onClick={() => setSelectedFixe(i)}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div className="sidebar-swatch" style={{ backgroundColor: m.couleur }} />
+                  <span style={{ fontWeight: selectedFixe === i ? 600 : 400 }}>{m.nom}</span>
+                </div>
+                <button onClick={(e) => { e.stopPropagation(); supprimerFixe(i); }}
+                  className="sidebar-item-action">x</button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Meubles selectionnes (amenagement) */}
+        {mode === 'amenagement' && meubleEntries.length > 0 && (
+          <div className="sidebar-placed">
+            <div className="sidebar-placed-label"
+              style={{ cursor: 'pointer', color: mode === 'amenagement' && amenagementStep === 2 ? '#E76F51' : undefined }}
+              onClick={() => { setMode('amenagement'); setAmenagementStep(2); }}>
+              Meubles ({totalMeubles})
+            </div>
+            {meubleEntries.map(([id, qty]) => {
+              const item = catalogue.find(m => m.id === id);
+              if (!item) return null;
+              return (
+                <div key={id} className="sidebar-placed-item">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 }}>
+                    <div className="sidebar-swatch" style={{ backgroundColor: item.couleur }} />
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.nom}</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 3, flexShrink: 0 }}>
+                    <button onClick={() => setMeubleQty(id, qty - 1)} className="sidebar-item-action">-</button>
+                    <span style={{ fontSize: 11, fontWeight: 600, minWidth: 14, textAlign: 'center', color: '#E76F51', fontFamily: 'Inter' }}>{qty}</span>
+                    <button onClick={() => setMeubleQty(id, qty + 1)} className="sidebar-item-action">+</button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Meubles places (resultat only) */}
+        {mode === 'resultat' && placements.length > 0 && (
+          <div className="sidebar-placed">
+            <div className="sidebar-placed-label">Meubles</div>
+            {placements.map((m, i) => (
+              <div key={`p${i}`} className="sidebar-placed-item"
+                style={{
+                  cursor: 'pointer',
+                  background: selectedPlacement === i ? 'rgba(231,111,81,0.12)' : undefined,
+                  border: selectedPlacement === i ? '1px solid rgba(231,111,81,0.3)' : '1px solid transparent',
+                  borderRadius: 6,
+                }}
+                onClick={() => setSelectedPlacement(i)}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div className="sidebar-swatch" style={{ backgroundColor: m.couleur }} />
+                  <span style={{ fontWeight: selectedPlacement === i ? 600 : 400 }}>{m.nom}</span>
+                </div>
+                <button onClick={(e) => { e.stopPropagation(); supprimerPlacement(i); }}
+                  className="sidebar-item-action">x</button>
+              </div>
+            ))}
+          </div>
+        )}
+
+      </div>
+    </div>
+  );
+}
+
+const MODE_INFO: Record<string, { label: string; desc: string }> = {
+  optimal: { label: 'Optimal', desc: 'Espace et circulation maximises' },
+  cosy: { label: 'Cosy', desc: 'Meubles groupes, ambiance chaleureuse' },
+  minimaliste: { label: 'Minimaliste', desc: 'Epure, alignements stricts' },
+};
+
 function StepMeubles() {
-  const selectedIds = useStore((s) => s.selectedIds);
-  const toggleMeuble = useStore((s) => s.toggleMeuble);
+  const selectedQty = useStore((s) => s.selectedQty);
+  const setMeubleQty = useStore((s) => s.setMeubleQty);
   const [catActive, setCatActive] = useState(categories[0]);
   const [recherche, setRecherche] = useState('');
   const filtered = catalogue.filter((m) =>
@@ -423,7 +553,7 @@ function StepMeubles() {
 
   return (
     <>
-      <p className="sidebar-desc">Cochez les meubles a placer.</p>
+      <p className="sidebar-desc">Cliquez pour ajouter, quantite dans l'inventaire.</p>
       <input type="text" placeholder="Rechercher..." value={recherche}
         onChange={(e) => setRecherche(e.target.value)}
         className="sidebar-search" />
@@ -433,21 +563,26 @@ function StepMeubles() {
             className={`sidebar-cat${catActive === cat ? ' active' : ''}`}>{cat}</button>
         ))}
       </div>
-      {filtered.map((m) => {
-        const checked = selectedIds.has(m.id);
-        return (
-          <label key={m.id} className={`sidebar-check${checked ? ' checked' : ''}`}>
-            <input type="checkbox" checked={checked} onChange={() => toggleMeuble(m.id)} />
-            <div className="sidebar-swatch" style={{ backgroundColor: m.couleur }} />
-            <div style={{ minWidth: 0 }}>
-              <div className="sidebar-item-name">{m.nom}</div>
-              <div className="sidebar-item-dim">{(m.largeur / 100).toFixed(1)} x {(m.hauteur / 100).toFixed(1)} m</div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+        {filtered.map((m) => {
+          const qty = selectedQty[m.id] ?? 0;
+          return (
+            <div key={m.id} onClick={() => setMeubleQty(m.id, qty + 1)}
+              style={{
+                padding: '4px 8px', borderRadius: 6, cursor: 'pointer',
+                background: qty > 0 ? 'rgba(231,111,81,0.1)' : 'rgba(0,0,0,0.03)',
+                border: qty > 0 ? '1px solid rgba(231,111,81,0.3)' : '1px solid rgba(0,0,0,0.06)',
+                fontSize: 10, fontFamily: 'Inter', fontWeight: 500,
+                color: qty > 0 ? '#E76F51' : '#444',
+                display: 'flex', alignItems: 'center', gap: 4,
+                transition: 'all 0.1s',
+              }}>
+              <div style={{ width: 8, height: 8, borderRadius: 2, background: m.couleur, flexShrink: 0 }} />
+              {m.nom}
+              {qty > 1 && <span style={{ fontWeight: 700 }}>x{qty}</span>}
             </div>
-          </label>
-        );
-      })}
-      <div className="sidebar-count">
-        {selectedIds.size} meuble{selectedIds.size !== 1 ? 's' : ''} selectionne{selectedIds.size !== 1 ? 's' : ''}
+          );
+        })}
       </div>
     </>
   );
@@ -467,15 +602,35 @@ function SidebarResultat() {
   const supprimerPlacement = useStore((s) => s.supprimerPlacement);
   const generer = useStore((s) => s.generer);
   const setMode = useStore((s) => s.setMode);
+  const placementMode = useStore((s) => s.placementMode);
+  const setPlacementMode = useStore((s) => s.setPlacementMode);
 
   const sel = selectedPlacement !== null ? placements[selectedPlacement] : null;
 
   return (
     <div className="sidebar">
-      <div className="sidebar-header">
-        <div className="sidebar-title">Resultat</div>
+      <div className="sidebar-header" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', paddingBottom: 10 }}>
+        <div className="sidebar-title" style={{ textAlign: 'center', width: '100%' }}>Resultat</div>
+        <div style={{ width: 40, height: 2, borderRadius: 1, background: 'var(--h-jaune)', marginTop: 8 }} />
       </div>
       <div className="sidebar-body">
+
+        {/* Style selector — always visible at top */}
+        <div style={{ display: 'flex', gap: 3, marginBottom: 12 }}>
+          {(['optimal', 'cosy', 'minimaliste'] as const).map((mode) => (
+            <button key={mode} onClick={() => setPlacementMode(mode)}
+              title={MODE_INFO[mode].desc}
+              style={{
+                flex: 1, padding: '5px 0', borderRadius: 6, border: 'none', cursor: 'pointer',
+                fontSize: 10, fontWeight: 600, fontFamily: 'Inter', letterSpacing: '0.02em',
+                background: placementMode === mode ? '#E76F51' : 'rgba(0,0,0,0.05)',
+                color: placementMode === mode ? '#fff' : 'rgba(0,0,0,0.5)',
+                transition: 'all 0.15s',
+              }}>
+              {MODE_INFO[mode].label}
+            </button>
+          ))}
+        </div>
 
         {/* ── Selected furniture panel ── */}
         {sel && selectedPlacement !== null ? (
@@ -524,18 +679,6 @@ function SidebarResultat() {
                 {nonPlaces.map((n, i) => <div key={i} className="sidebar-badge-detail">{n}</div>)}
               </div>
             )}
-            {/* Furniture list */}
-            <div className="sidebar-placed">
-              {placements.map((m, i) => (
-                <div key={i} className="sidebar-placed-item" style={{ cursor: 'pointer' }}
-                  onClick={() => setSelectedPlacement(i)}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <div className="sidebar-swatch" style={{ backgroundColor: m.couleur }} />
-                    <span>{m.nom}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
             <button onClick={generer} className="sidebar-btn sidebar-btn--primary">
               Rearranger
             </button>

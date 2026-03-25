@@ -4,7 +4,6 @@ import { useStore } from '../store';
 import { snap, dist, douglasPeucker, distPointSegment, polyBounds, projeterSur, pointSurSegment, wallsSurface } from '../utils/geometry';
 import { generateTemplate } from '../utils/templates';
 import type { Point, WallLine, TemplateShape } from '../types';
-
 const MAX_CM = 1000;
 const GRID = 10;
 const CLOSE_RADIUS = 30;
@@ -84,12 +83,10 @@ export function CanvasDessin() {
 
   // ── Coordinate system with zoom + pan — grid centered in free area ──
   const PAD = 40;
-  const SIDEBAR_W = 290;
-  const freeW = sz.w - SIDEBAR_W;
-  const baseScale = Math.min((freeW - PAD * 2) / MAX_CM, (sz.h - PAD * 2) / MAX_CM);
+  const baseScale = Math.min((sz.w - PAD * 2) / MAX_CM, (sz.h - PAD * 2) / MAX_CM);
   const scale = baseScale * echelle;
   const gridPx = MAX_CM * scale;
-  const cx = SIDEBAR_W + (freeW - gridPx) / 2;
+  const cx = (sz.w - gridPx) / 2;
   const cy = (sz.h - gridPx) / 2;
 
   const toSc = (p: Point) => ({
@@ -302,6 +299,7 @@ export function CanvasDessin() {
   };
 
   // ── MOUSE DOWN/MOVE/UP ──
+
   const handleMouseDown = (e: any) => {
     // Middle mouse button (button 1) for panning
     if (e.evt.button === 1) {
@@ -344,10 +342,7 @@ export function CanvasDessin() {
   };
 
   const handleMouseUp = () => {
-    if (isPanning) {
-      setIsPanning(false);
-      return;
-    }
+    if (isPanning) { setIsPanning(false); return; }
 
     if (drawing && activeTool === 'freehand' && freehandStroke.length > 1) {
       const simplified = douglasPeucker(freehandStroke, 20);
@@ -766,7 +761,6 @@ export function CanvasDessin() {
             <Circle x={mousePx.x} y={mousePx.y} radius={3.5}
               fill="rgba(231,111,81,0.4)" stroke="rgba(231,111,81,0.6)" strokeWidth={1} />
           )}
-
           {/* Fixed instruction at bottom-left */}
           <Text x={16} y={sz.h - 32} text={instruction} fontSize={12} fill="rgba(0,0,0,0.35)" fontFamily="Inter" />
         </Layer>

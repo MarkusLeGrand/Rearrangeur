@@ -23,12 +23,15 @@ export function LandingHeader({ onEnterApp }: Props) {
       if (ticking.current) return;
       ticking.current = true;
       requestAnimationFrame(() => {
-        setPastHero(window.scrollY > window.innerHeight * 0.8);
+        if (window.scrollY > window.innerHeight * 0.4) setPastHero(true);
+        else if (window.scrollY < window.innerHeight * 0.1) setPastHero(false);
         ticking.current = false;
       });
     };
+    const onShowToc = () => setPastHero(true);
     window.addEventListener('scroll', onScroll, { passive: true });
-    return () => window.removeEventListener('scroll', onScroll);
+    window.addEventListener('show-toc', onShowToc);
+    return () => { window.removeEventListener('scroll', onScroll); window.removeEventListener('show-toc', onShowToc); };
   }, []);
 
   // Scroll-spy via IntersectionObserver
@@ -53,7 +56,12 @@ export function LandingHeader({ onEnterApp }: Props) {
   }, []);
 
   const scrollTo = useCallback((id: string) => {
-    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
+    const el = document.getElementById(id);
+    if (el) {
+      const rect = el.getBoundingClientRect();
+      const offset = window.scrollY + rect.top - (window.innerHeight / 2 - rect.height / 2);
+      window.scrollTo({ top: Math.max(0, offset), behavior: 'smooth' });
+    }
     setMenuOpen(false);
   }, []);
 

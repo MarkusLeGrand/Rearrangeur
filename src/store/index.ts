@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { AppMode, DrawPhase, DrawMethod, DrawTool, TemplateShape, TemplateParams, ElementMur, FenetreVariant, MeublePlacement, Piece, Point, WallLine } from '../types';
 import { catalogue } from '../data/catalogue';
-import { genererPlacement } from '../utils/placement';
+import { genererPlacement, type PlacementMode } from '../utils/placement';
 import { aire, polyBounds, wallsToPolygon } from '../utils/geometry';
 import { defaultTemplateParams, generateTemplate } from '../utils/templates';
 
@@ -75,9 +75,16 @@ interface State {
   ajouterFixe: (m: MeublePlacement) => void;
   supprimerFixe: (i: number) => void;
   mettreAJourFixe: (i: number, u: Partial<MeublePlacement>) => void;
+  selectedFixe: number | null;
+  setSelectedFixe: (i: number | null) => void;
 
-  selectedIds: Set<string>;
+  selectedQty: Record<string, number>;
+  setMeubleQty: (id: string, qty: number) => void;
   toggleMeuble: (id: string) => void;
+  placementMode: PlacementMode;
+  setPlacementMode: (m: PlacementMode) => void;
+  amenagementStep: number;
+  setAmenagementStep: (s: number) => void;
 
   // ── RÉSULTAT ──
   placements: MeublePlacement[];
@@ -98,6 +105,9 @@ interface State {
   setEchelle: (e: number) => void;
   resetTout: () => void;
 }
+
+// Track animation timeouts so we can cancel on re-generate
+const animTimers: ReturnType<typeof setTimeout>[] = [];
 
 export const useStore = create<State>((set, get) => ({
   mode: 'dessin',
@@ -316,17 +326,28 @@ export const useStore = create<State>((set, get) => ({
 
   fixes: [],
   ajouterFixe: (m) => set((s) => ({ fixes: [...s.fixes, m] })),
-  supprimerFixe: (i) => set((s) => ({ fixes: s.fixes.filter((_, idx) => idx !== i) })),
+  supprimerFixe: (i) => set((s) => ({ fixes: s.fixes.filter((_, idx) => idx !== i), selectedFixe: null })),
   mettreAJourFixe: (i, u) => set((s) => ({
     fixes: s.fixes.map((m, idx) => (idx === i ? { ...m, ...u } : m)),
   })),
+  selectedFixe: null,
+  setSelectedFixe: (i) => set({ selectedFixe: i }),
 
-  selectedIds: new Set(),
-  toggleMeuble: (id) => set((s) => {
-    const next = new Set(s.selectedIds);
-    if (next.has(id)) next.delete(id); else next.add(id);
-    return { selectedIds: next };
+  selectedQty: {},
+  setMeubleQty: (id, qty) => set((s) => {
+    const next = { ...s.selectedQty };
+    if (qty <= 0) delete next[id]; else next[id] = qty;
+    return { selectedQty: next };
   }),
+  toggleMeuble: (id) => set((s) => {
+    const next = { ...s.selectedQty };
+    if (next[id]) delete next[id]; else next[id] = 1;
+    return { selectedQty: next };
+  }),
+  placementMode: 'optimal' as PlacementMode,
+  setPlacementMode: (m) => set({ placementMode: m }),
+  amenagementStep: 0,
+  setAmenagementStep: (s) => set({ amenagementStep: s }),
 
   // ── Résultat ──
   placements: [],
@@ -336,16 +357,40 @@ export const useStore = create<State>((set, get) => ({
   setSelectedPlacement: (i) => set({ selectedPlacement: i }),
 
   generer: () => {
-    const { selectedIds, piece, fixes, elementsMur } = get();
+    const { selectedQty, piece, fixes, elementsMur } = get();
     if (!piece) return;
-    const choisis = catalogue.filter((m) => selectedIds.has(m.id));
-    const result = genererPlacement(choisis, piece, fixes, elementsMur);
-    const placedIds = new Set(result.map((r) => r.catalogueId));
-    set({
-      placements: result,
-      nonPlaces: choisis.filter((m) => !placedIds.has(m.id)).map((m) => m.nom),
-      isGenerated: true,
-      mode: 'resultat',
+    // Expand quantities: e.g. { chaise: 4 } → [chaise, chaise, chaise, chaise]
+    const choisis: typeof catalogue = [];
+    for (const [id, qty] of Object.entries(selectedQty)) {
+      const item = catalogue.find((m) => m.id === id);
+      if (item) for (let i = 0; i < qty; i++) choisis.push(item);
+    }
+    const { placementMode } = get();
+    const result = genererPlacement(choisis, piece, fixes, elementsMur, placementMode);
+    // Count placed vs requested
+    const placedCount: Record<string, number> = {};
+    for (const r of result) placedCount[r.catalogueId] = (placedCount[r.catalogueId] ?? 0) + 1;
+    const nonPlaces: string[] = [];
+    for (const [id, qty] of Object.entries(selectedQty)) {
+      const placed = placedCount[id] ?? 0;
+      const item = catalogue.find((m) => m.id === id);
+      if (item && placed < qty) {
+        nonPlaces.push(`${item.nom} (${placed}/${qty})`);
+      }
+    }
+    // Cancel any previous animation
+    if (animTimers.length > 0) {
+      animTimers.forEach(clearTimeout);
+      animTimers.length = 0;
+    }
+    // Animate: place furniture one by one
+    set({ placements: [], nonPlaces, isGenerated: true, mode: 'resultat' });
+    result.forEach((meuble, i) => {
+      const t = setTimeout(() => {
+        set((s) => ({ placements: [...s.placements, meuble] }));
+        if (i === result.length - 1) animTimers.length = 0;
+      }, i * 150);
+      animTimers.push(t);
     });
   },
 
@@ -365,7 +410,7 @@ export const useStore = create<State>((set, get) => ({
       piece: s.piece,
       elementsMur: s.elementsMur,
       fixes: s.fixes,
-      selectedIds: [...s.selectedIds],
+      selectedQty: s.selectedQty,
       contourPoints: s.contourPoints,
       contourClosed: s.contourClosed,
       innerWalls: s.innerWalls,
@@ -392,7 +437,7 @@ export const useStore = create<State>((set, get) => ({
         piece: data.piece ?? null,
         elementsMur: data.elementsMur ?? [],
         fixes: data.fixes ?? [],
-        selectedIds: new Set(data.selectedIds ?? []),
+        selectedQty: data.selectedQty ?? (data.selectedIds ? Object.fromEntries((data.selectedIds as string[]).map(id => [id, 1])) : {}),
         contourPoints: data.contourPoints ?? [],
         contourClosed: data.contourClosed ?? false,
         innerWalls: data.innerWalls ?? [],
@@ -420,11 +465,24 @@ export const useStore = create<State>((set, get) => ({
     drawnWalls: [], lineStart: null, freehandStroke: [],
     innerWalls: [], innerWallStart: null,
     piece: null, elementsMur: [], fixes: [],
-    selectedIds: new Set(), placements: [], nonPlaces: [],
-    isGenerated: false, selectedPlacement: null,
+    selectedQty: {},
+    placements: [], nonPlaces: [],
+    isGenerated: false, selectedPlacement: null, selectedFixe: null,
     placingTool: null as { type: 'porte' | 'fenetre'; variant?: FenetreVariant } | null,
     targetSurfaceM2: 20, drawMethod: null, activeTool: 'line',
     templateShape: 'rectangle', templateParams: null,
     drawError: null,
   }),
 }));
+
+// ── Auto-save: debounced save on every state change ──
+let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
+useStore.subscribe(() => {
+  if (autoSaveTimer) clearTimeout(autoSaveTimer);
+  autoSaveTimer = setTimeout(() => {
+    useStore.getState().sauvegarder();
+  }, 1000);
+});
+
+// ── Auto-load on startup ──
+useStore.getState().charger();

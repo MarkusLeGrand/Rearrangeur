@@ -7,7 +7,6 @@ interface Props {
 }
 
 export function LandingPage({ onEnterApp }: Props) {
-  // Reveal sections on scroll
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
@@ -35,36 +34,43 @@ export function LandingPage({ onEnterApp }: Props) {
       <section id="hero" className="landing-hero">
         <div className="landing-hero-content">
           <p className="landing-hero-tagline">
-            Dessinez votre piece. Placez vos meubles.<br />
-            L'algorithme s'occupe du reste.
+            Dessinez. Meublez.<br />
+            L'algorithme arrange tout.
           </p>
           <RoomPreview />
           <button onClick={onEnterApp} className="landing-hero-cta">
-            Essayer gratuitement
+            Commencer un projet
           </button>
         </div>
-        <div className="landing-hero-scroll">
-          <div className="landing-hero-scroll-line" />
-        </div>
+        <button className="landing-hero-down" onClick={() => {
+          const el = document.getElementById('introduction');
+          if (el) {
+            const rect = el.getBoundingClientRect();
+            window.scrollTo({ top: window.scrollY + rect.top - (window.innerHeight / 2 - rect.height / 2), behavior: 'smooth' });
+          }
+          window.dispatchEvent(new CustomEvent('show-toc'));
+        }}>
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
+        </button>
       </section>
 
       {/* ── Introduction ── */}
-      <section id="introduction" className="landing-section landing-section--light">
+      <section id="introduction" className="landing-section landing-section--card">
         <div className="landing-section-inner">
           <span className="landing-section-tag">Introduction</span>
-          <h2 className="landing-section-title">Un outil simple et puissant</h2>
+          <h2 className="landing-section-title">Votre piece, vos regles</h2>
           <p className="landing-section-text">
-            Rearrangeur est une application web de reagencement automatique de piece.
-            Dessinez les murs de votre piece, placez vos portes, fenetres et elements
-            fixes, selectionnez vos meubles dans le catalogue, et laissez l'algorithme
-            generer un plan optimise. Un clic sur « Rearranger » pour explorer une
-            nouvelle disposition.
+            Dessinez n'importe quelle forme. Placez portes, fenetres, equipements.
+            Choisissez vos meubles. L'algo genere un plan. Cliquez « Rearranger »
+            pour un autre.
           </p>
         </div>
       </section>
 
       {/* ── Fonctionnement ── */}
-      <section id="fonctionnement" className="landing-section landing-section--dark">
+      <section id="fonctionnement" className="landing-section landing-section--card">
         <div className="landing-section-inner">
           <span className="landing-section-tag">Fonctionnement</span>
           <h2 className="landing-section-title">Trois etapes</h2>
@@ -73,24 +79,21 @@ export function LandingPage({ onEnterApp }: Props) {
               <span className="landing-card-num">01</span>
               <h3 className="landing-card-title">Dessinez</h3>
               <p className="landing-card-text">
-                Tracez les murs de votre piece librement sur le canvas.
-                Murs exterieurs, cloisons interieures — tout est possible.
+                Murs a main levee ou forme parametrique. Cloisons interieures. Surface en temps reel.
               </p>
             </div>
             <div className="landing-card">
               <span className="landing-card-num">02</span>
-              <h3 className="landing-card-title">Amenagez</h3>
+              <h3 className="landing-card-title">Equipez</h3>
               <p className="landing-card-text">
-                Placez portes et fenetres sur les murs, positionnez vos elements
-                fixes, et cochez les meubles souhaites dans le catalogue.
+                Portes, fenetres, cuisine, salle de bain. Selectionnez les meubles, ajustez les quantites.
               </p>
             </div>
             <div className="landing-card">
               <span className="landing-card-num">03</span>
               <h3 className="landing-card-title">Generez</h3>
               <p className="landing-card-text">
-                L'algorithme place automatiquement vos meubles en respectant
-                les contraintes. Rearrangez autant de fois que vous le souhaitez.
+                L'algo place tout. Choisissez un style. Rearrangez. Exportez en PNG.
               </p>
             </div>
           </div>
@@ -98,30 +101,42 @@ export function LandingPage({ onEnterApp }: Props) {
       </section>
 
       {/* ── Technologie ── */}
-      <section id="technologie" className="landing-section landing-section--light">
+      <section id="technologie" className="landing-section landing-section--card">
         <div className="landing-section-inner">
           <span className="landing-section-tag">Technologie</span>
-          <h2 className="landing-section-title">Placement intelligent</h2>
+          <h2 className="landing-section-title">Pas du random</h2>
           <p className="landing-section-text">
-            Notre algorithme de placement combine positionnement mural et aleatoire
-            controle. Chaque meuble est valide : il doit etre a l'interieur du
-            polygone de la piece, ne traverser aucun mur, et ne chevaucher aucun
-            autre element. Un fallback par grille systematique garantit un resultat
-            meme dans les configurations complexes.
+            Tete de lit contre le mur. Canape pas dos a la porte. 60 cm de passage minimum.
+            Meubles de cuisine loin du lit. 3 styles : Optimal, Cosy, Minimaliste.
           </p>
         </div>
       </section>
 
       {/* ── Resultats ── */}
-      <section id="resultats" className="landing-section landing-section--dark">
+      <section id="resultats" className="landing-section landing-section--card">
         <div className="landing-section-inner">
           <span className="landing-section-tag">Resultats</span>
-          <h2 className="landing-section-title">Exportez votre plan</h2>
-          <p className="landing-section-text">
-            Visualisez votre agencement en temps reel sur le canvas 2D.
-            Exportez votre plan en PNG haute resolution d'un clic.
-            Partagez-le, imprimez-le, ou utilisez-le comme base pour votre projet.
-          </p>
+          <h2 className="landing-section-title">Ce que vous obtenez</h2>
+          <div className="landing-cards">
+            <div className="landing-card">
+              <h3 className="landing-card-title">Sauvegarde auto</h3>
+              <p className="landing-card-text">
+                Fermez, revenez. Tout est la.
+              </p>
+            </div>
+            <div className="landing-card">
+              <h3 className="landing-card-title">70 meubles</h3>
+              <p className="landing-card-text">
+                Salon, chambre, cuisine, sdb, bureau.
+              </p>
+            </div>
+            <div className="landing-card">
+              <h3 className="landing-card-title">100% navigateur</h3>
+              <p className="landing-card-text">
+                Pas de compte. Pas d'install. Vos donnees restent chez vous.
+              </p>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -133,7 +148,7 @@ export function LandingPage({ onEnterApp }: Props) {
             Lancer l'application
           </button>
           <p className="landing-footer-copy">
-            &copy; 2026 Rearrangeur. Tous droits reserves.
+            &copy; 2025 Rearrangeur — Reagencement automatique de piece.
           </p>
         </div>
       </footer>

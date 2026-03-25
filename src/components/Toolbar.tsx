@@ -12,14 +12,11 @@ export function Toolbar({ stageRef, onBackToLanding }: Props) {
   const mode = useStore((s) => s.mode);
   const setMode = useStore((s) => s.setMode);
   const piece = useStore((s) => s.piece);
-  const selectedIds = useStore((s) => s.selectedIds);
+  const selectedQty = useStore((s) => s.selectedQty);
   const generer = useStore((s) => s.generer);
   const isGenerated = useStore((s) => s.isGenerated);
   const nonPlaces = useStore((s) => s.nonPlaces);
   const resetTout = useStore((s) => s.resetTout);
-  const sauvegarder = useStore((s) => s.sauvegarder);
-  const charger = useStore((s) => s.charger);
-  const [saveMsg, setSaveMsg] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
 
   const exportPNG = () => {
@@ -45,7 +42,7 @@ export function Toolbar({ stageRef, onBackToLanding }: Props) {
 
   // Which CTA to show inline
   const inlineCTA = mode === 'amenagement'
-    ? { label: 'Generer', action: generer, disabled: selectedIds.size === 0 }
+    ? { label: 'Generer', action: generer, disabled: Object.keys(selectedQty).length === 0 }
     : mode === 'resultat'
       ? { label: 'Rearranger', action: generer, disabled: false }
       : null;
@@ -122,49 +119,32 @@ export function Toolbar({ stageRef, onBackToLanding }: Props) {
         <div className="pill-panel-main">
           {/* Left — links */}
           <div className="pill-panel-links">
-            <button
-              onClick={() => {
-                sauvegarder();
-                setSaveMsg('Sauvegarde !');
-                setTimeout(() => setSaveMsg(''), 2000);
-              }}
-              className="pill-panel-link"
-            >
-              Sauvegarder
-            </button>
-            <button
-              onClick={() => { charger(); setMenuOpen(false); }}
-              className="pill-panel-link"
-            >
-              Charger
-            </button>
             {mode === 'resultat' && (
-              <>
-                <button onClick={exportPNG} className="pill-panel-link">
-                  Export PNG
-                </button>
-                <button
-                  onClick={() => { setMode('amenagement'); setMenuOpen(false); }}
-                  className="pill-panel-link"
-                >
-                  Modifier
-                </button>
-              </>
+              <button onClick={() => { exportPNG(); setMenuOpen(false); }} className="pill-panel-link">
+                Export PNG
+              </button>
+            )}
+            {(mode === 'amenagement' || mode === 'resultat') && (
+              <button
+                onClick={() => { setMode('dessin'); setMenuOpen(false); }}
+                className="pill-panel-link"
+              >
+                Modifier la piece
+              </button>
             )}
             <button
               onClick={() => { resetTout(); setMenuOpen(false); }}
               className="pill-panel-link pill-panel-link--danger"
             >
-              Recommencer
+              Nouveau projet
             </button>
-            {saveMsg && <span className="pill-toast">{saveMsg}</span>}
           </div>
 
           {/* Right — CTA area */}
           {mode === 'amenagement' ? (
             <button
               onClick={() => { generer(); setMenuOpen(false); }}
-              disabled={selectedIds.size === 0}
+              disabled={Object.keys(selectedQty).length === 0}
               className="pill-panel-media pill-panel-media--cta"
             >
               <span className="pill-panel-media-cta-text">Generer</span>

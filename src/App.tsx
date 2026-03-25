@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback } from 'react';
 import type Konva from 'konva';
 import { Toolbar } from './components/Toolbar';
-import { Sidebar } from './components/Sidebar';
+import { Sidebar, InventoryPanel } from './components/Sidebar';
 import { CanvasDessin } from './components/CanvasDessin';
 import { CanvasAmenagement } from './components/CanvasAmenagement';
 import { CanvasResultat } from './components/CanvasResultat';
@@ -36,6 +36,7 @@ function App() {
         {mode === 'dessin' && <CanvasDessin />}
         {mode === 'amenagement' && <CanvasAmenagement />}
         {mode === 'resultat' && <CanvasResultat stageRef={stageRef} />}
+        {(mode === 'amenagement' || mode === 'resultat') && <InventoryPanel />}
       </div>
     </div>
   );
